@@ -132,8 +132,7 @@ func (c *Client) UpsertDatasource(ctx context.Context, ds Datasource) error {
 	body, err := c.do(ctx, http.MethodGet, "/api/datasources/uid/"+ds.UID, nil)
 	if err == nil && len(body) > 0 {
 		var existing struct {
-			ID       int64 `json:"id"`
-			ReadOnly bool  `json:"readOnly"`
+			ReadOnly bool `json:"readOnly"`
 		}
 		if jerr := json.Unmarshal(body, &existing); jerr != nil {
 			return fmt.Errorf("grafana: decode existing datasource: %w", jerr)
@@ -143,7 +142,9 @@ func (c *Client) UpsertDatasource(ctx context.Context, ds Datasource) error {
 			// dashboards reference by UID and that hasn't changed.
 			return nil
 		}
-		_, perr := c.do(ctx, http.MethodPut, fmt.Sprintf("/api/datasources/%d", existing.ID), ds)
+		// Update by UID: the legacy numeric-id endpoint
+		// PUT /api/datasources/:id was removed in Grafana 13.
+		_, perr := c.do(ctx, http.MethodPut, "/api/datasources/uid/"+ds.UID, ds)
 		// Forward-compat: even if a future Grafana drops readOnly from the
 		// GET response, a 403 with the read-only message is unambiguous.
 		if perr != nil && isReadOnlyError(perr) {

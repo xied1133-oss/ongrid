@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { ThinkingMarkdown } from '@/components/ThinkingMarkdown';
 import {
   AlertTriangle,
   Bell,
@@ -861,7 +862,7 @@ function AIInitialDiagnosisPanel({
           </span>
         </header>
         <div className="md-body px-4 py-3 text-[14px] leading-relaxed text-zinc-100">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+          <ThinkingMarkdown content={text} />
         </div>
       </section>
     );

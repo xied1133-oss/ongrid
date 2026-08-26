@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Send, Loader2, X, ExternalLink, Bot } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { ThinkingMarkdown } from '@/components/ThinkingMarkdown';
 import { cn } from '@/lib/cn';
 import { isImeComposing } from '@/lib/keyboard';
 import { createSession, postMessage } from '@/api/chat';
@@ -272,7 +271,7 @@ function MiniBubble({ msg }: { msg: Msg }) {
         </div>
       ) : (
         <div className="md-body text-[13px] leading-relaxed text-zinc-100">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+          <ThinkingMarkdown content={msg.content} />
         </div>
       )}
     </div>

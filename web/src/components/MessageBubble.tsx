@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { ThinkingMarkdown } from '@/components/ThinkingMarkdown';
 import {
   AlertCircle,
   Check,
@@ -140,7 +139,7 @@ function AssistantBubble({ message, onConfirmConfigDraft, hideActiveOperations }
         </span>
       ) : (
         <div className="md-body text-zinc-100">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+          <ThinkingMarkdown content={message.content} />
         </div>
       )}
       {message.tool_calls?.map((tc, i) => (
