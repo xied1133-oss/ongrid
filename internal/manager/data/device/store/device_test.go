@@ -1,0 +1,483 @@
+package store
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
+
+	model "github.com/ongridio/ongrid/internal/manager/model/device"
+	edgemodel "github.com/ongridio/ongrid/internal/manager/model/edge"
+	k8smodel "github.com/ongridio/ongrid/internal/manager/model/k8s"
+	"github.com/ongridio/ongrid/internal/pkg/errs"
+)
+
+func newDeviceTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		t.Fatalf("gorm.Open sqlite :memory:: %v", err)
+	}
+	if err := Migrate(db); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	return db
+}
+
+func sampleDevice(fingerprint string) *model.Device {
+	return &model.Device{
+		Fingerprint:    fingerprint,
+		Name:           fingerprint,
+		Hostname:       fingerprint,
+		OS:             "linux",
+		Arch:           "amd64",
+		KernelVersion:  "6.8.0",
+		CPUCount:       2,
+		MemTotalBytes:  4096,
+		DiskTotalBytes: 8192,
+	}
+}
+
+func TestMigrateSkipsKubernetesControllerEdges(t *testing.T) {
+	db := openDeviceMigrationTestDB(t)
+	if err := db.AutoMigrate(&edgemodel.Edge{}, &k8smodel.Cluster{}); err != nil {
+		t.Fatalf("AutoMigrate dependencies: %v", err)
+	}
+	edge := &edgemodel.Edge{AccessKeyID: "controller-only", SecretKeyHash: "hash", Name: "k8s:cluster:controller"}
+	if err := db.Create(edge).Error; err != nil {
+		t.Fatalf("create controller edge: %v", err)
+	}
+	cluster := &k8smodel.Cluster{
+		Name:                   "cluster",
+		Mode:                   k8smodel.ModeFullNode,
+		BootstrapTokenHash:     "controller-token",
+		NodeBootstrapTokenHash: "node-token",
+		ControllerEdgeID:       &edge.ID,
+	}
+	if err := db.Create(cluster).Error; err != nil {
+		t.Fatalf("create cluster: %v", err)
+	}
+
+	if err := Migrate(db); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	assertControllerHasNoHostDevice(t, db, edge.ID)
+}
+
+func TestMigrateDetachesLegacyKubernetesControllerDevice(t *testing.T) {
+	db := openDeviceMigrationTestDB(t)
+	if err := db.AutoMigrate(&edgemodel.Edge{}); err != nil {
+		t.Fatalf("AutoMigrate edge: %v", err)
+	}
+	edge := &edgemodel.Edge{AccessKeyID: "legacy-controller", SecretKeyHash: "hash", Name: "k8s:legacy:controller"}
+	if err := db.Create(edge).Error; err != nil {
+		t.Fatalf("create controller edge: %v", err)
+	}
+	if err := Migrate(db); err != nil {
+		t.Fatalf("initial Migrate: %v", err)
+	}
+
+	if err := db.AutoMigrate(&k8smodel.Cluster{}); err != nil {
+		t.Fatalf("AutoMigrate cluster: %v", err)
+	}
+	cluster := &k8smodel.Cluster{
+		Name:                   "legacy-cluster",
+		Mode:                   k8smodel.ModeFullNode,
+		BootstrapTokenHash:     "controller-token",
+		NodeBootstrapTokenHash: "node-token",
+		ControllerEdgeID:       &edge.ID,
+	}
+	if err := db.Create(cluster).Error; err != nil {
+		t.Fatalf("create cluster: %v", err)
+	}
+
+	if err := Migrate(db); err != nil {
+		t.Fatalf("cleanup Migrate: %v", err)
+	}
+	if err := Migrate(db); err != nil {
+		t.Fatalf("idempotent Migrate: %v", err)
+	}
+	assertControllerHasNoHostDevice(t, db, edge.ID)
+}
+
+func TestMigratePreservesDeviceReferencedByNonControllerEdge(t *testing.T) {
+	db := openDeviceMigrationTestDB(t)
+	if err := db.AutoMigrate(&edgemodel.Edge{}, &k8smodel.Cluster{}, &model.Device{}, &model.EdgeDevice{}); err != nil {
+		t.Fatalf("AutoMigrate dependencies: %v", err)
+	}
+	device := sampleDevice("shared-host")
+	if err := db.Create(device).Error; err != nil {
+		t.Fatalf("create shared device: %v", err)
+	}
+	controller := &edgemodel.Edge{
+		AccessKeyID:   "shared-controller",
+		SecretKeyHash: "hash",
+		Name:          "k8s:shared:controller",
+		DeviceID:      &device.ID,
+	}
+	host := &edgemodel.Edge{
+		AccessKeyID:   "shared-host-edge",
+		SecretKeyHash: "hash",
+		Name:          "shared-host",
+		DeviceID:      &device.ID,
+	}
+	if err := db.Create(controller).Error; err != nil {
+		t.Fatalf("create controller edge: %v", err)
+	}
+	if err := db.Create(host).Error; err != nil {
+		t.Fatalf("create host edge: %v", err)
+	}
+	if err := db.Create(&model.EdgeDevice{
+		EdgeID: controller.ID, DeviceID: device.ID, Type: model.EdgeDeviceRelationHost,
+	}).Error; err != nil {
+		t.Fatalf("create stale controller link: %v", err)
+	}
+	cluster := &k8smodel.Cluster{
+		Name:                   "shared-cluster",
+		Mode:                   k8smodel.ModeFullNode,
+		BootstrapTokenHash:     "controller-token",
+		NodeBootstrapTokenHash: "node-token",
+		ControllerEdgeID:       &controller.ID,
+	}
+	if err := db.Create(cluster).Error; err != nil {
+		t.Fatalf("create cluster: %v", err)
+	}
+
+	if err := Migrate(db); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	var remaining model.Device
+	if err := db.First(&remaining, device.ID).Error; err != nil {
+		t.Fatalf("shared device was removed: %v", err)
+	}
+	var hostLinks int64
+	if err := db.Model(&model.EdgeDevice{}).
+		Where("edge_id = ? AND device_id = ? AND type = ?", host.ID, device.ID, model.EdgeDeviceRelationHost).
+		Count(&hostLinks).Error; err != nil {
+		t.Fatalf("count host links: %v", err)
+	}
+	if hostLinks != 1 {
+		t.Fatalf("non-controller host links = %d, want 1", hostLinks)
+	}
+}
+
+func openDeviceMigrationTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	if err != nil {
+		t.Fatalf("gorm.Open sqlite :memory:: %v", err)
+	}
+	return db
+}
+
+func assertControllerHasNoHostDevice(t *testing.T, db *gorm.DB, edgeID uint64) {
+	t.Helper()
+	var edge edgemodel.Edge
+	if err := db.First(&edge, edgeID).Error; err != nil {
+		t.Fatalf("load edge: %v", err)
+	}
+	if edge.DeviceID != nil {
+		t.Fatalf("controller edge device_id = %d, want nil", *edge.DeviceID)
+	}
+	var links int64
+	if err := db.Model(&model.EdgeDevice{}).
+		Where("edge_id = ? AND type = ?", edgeID, model.EdgeDeviceRelationHost).
+		Count(&links).Error; err != nil {
+		t.Fatalf("count host links: %v", err)
+	}
+	if links != 0 {
+		t.Fatalf("controller host links = %d, want 0", links)
+	}
+	var devices int64
+	if err := db.Model(&model.Device{}).Where("id = ?", edgeID).Count(&devices).Error; err != nil {
+		t.Fatalf("count controller devices: %v", err)
+	}
+	if devices != 0 {
+		t.Fatalf("controller devices = %d, want 0", devices)
+	}
+}
+
+func TestFindOrCreateByFingerprintSoftDeleteAllowsReuse(t *testing.T) {
+	db := newDeviceTestDB(t)
+	repo := NewRepo(db)
+	ctx := context.Background()
+
+	first, err := repo.FindOrCreateByFingerprint(ctx, sampleDevice("host-a"))
+	if err != nil {
+		t.Fatalf("first FindOrCreateByFingerprint: %v", err)
+	}
+
+	again, err := repo.FindOrCreateByFingerprint(ctx, sampleDevice("host-a"))
+	if err != nil {
+		t.Fatalf("second FindOrCreateByFingerprint: %v", err)
+	}
+	if again.ID != first.ID {
+		t.Fatalf("active duplicate created id %d, want existing id %d", again.ID, first.ID)
+	}
+
+	if err := repo.Delete(ctx, first.ID); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
+	recreated, err := repo.FindOrCreateByFingerprint(ctx, sampleDevice("host-a"))
+	if err != nil {
+		t.Fatalf("recreate after soft delete: %v", err)
+	}
+	if recreated.ID == first.ID {
+		t.Fatalf("recreated row reused soft-deleted id %d", first.ID)
+	}
+	if n, err := repo.Count(ctx); err != nil || n != 1 {
+		t.Fatalf("Count after recreate = %d, %v; want 1,nil", n, err)
+	}
+}
+
+func TestEdgeDeviceLinkSoftDeleteAllowsReuse(t *testing.T) {
+	db := newDeviceTestDB(t)
+	repo := NewEdgeDeviceRepo(db)
+	ctx := context.Background()
+
+	if err := repo.Link(ctx, 1, 2, model.EdgeDeviceRelationHost); err != nil {
+		t.Fatalf("first Link: %v", err)
+	}
+	if err := repo.Link(ctx, 1, 2, model.EdgeDeviceRelationHost); err != nil {
+		t.Fatalf("duplicate active Link should be idempotent: %v", err)
+	}
+	rows, err := repo.ListDevicesForEdge(ctx, 1)
+	if err != nil {
+		t.Fatalf("ListDevicesForEdge: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("active duplicate link count = %d, want 1", len(rows))
+	}
+
+	if err := repo.Unlink(ctx, 1, 2, model.EdgeDeviceRelationHost); err != nil {
+		t.Fatalf("Unlink: %v", err)
+	}
+	if err := repo.Link(ctx, 1, 2, model.EdgeDeviceRelationHost); err != nil {
+		t.Fatalf("relink after soft delete: %v", err)
+	}
+	rows, err = repo.ListDevicesForEdge(ctx, 1)
+	if err != nil {
+		t.Fatalf("ListDevicesForEdge after relink: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("active relink count = %d, want 1", len(rows))
+	}
+}
+
+func TestEdgeDeviceHostLinkReplacesPreviousHost(t *testing.T) {
+	db := newDeviceTestDB(t)
+	repo := NewEdgeDeviceRepo(db)
+	ctx := context.Background()
+
+	if err := repo.Link(ctx, 1, 2, model.EdgeDeviceRelationHost); err != nil {
+		t.Fatalf("first host Link: %v", err)
+	}
+	if err := repo.Link(ctx, 1, 3, model.EdgeDeviceRelationHost); err != nil {
+		t.Fatalf("replace host Link: %v", err)
+	}
+	got, err := repo.LookupHostDevice(ctx, 1)
+	if err != nil {
+		t.Fatalf("LookupHostDevice: %v", err)
+	}
+	if got != 3 {
+		t.Fatalf("LookupHostDevice = %d, want latest device 3", got)
+	}
+	rows, err := repo.ListDevicesForEdge(ctx, 1)
+	if err != nil {
+		t.Fatalf("ListDevicesForEdge: %v", err)
+	}
+	if len(rows) != 1 || rows[0].DeviceID != 3 {
+		t.Fatalf("active host rows = %#v, want only device 3", rows)
+	}
+}
+
+func TestReconcileOfflineOrphans(t *testing.T) {
+	db := newDeviceTestDB(t)
+	// The device store Migrate creates devices + edge_devices; the reconcile
+	// join also needs the edges table.
+	if err := db.AutoMigrate(&edgemodel.Edge{}); err != nil {
+		t.Fatalf("AutoMigrate edges: %v", err)
+	}
+	repo := NewRepo(db)
+	ctx := context.Background()
+
+	mkOnlineDevice := func(fp string) uint64 {
+		d, err := repo.FindOrCreateByFingerprint(ctx, sampleDevice(fp))
+		if err != nil {
+			t.Fatalf("create device %s: %v", fp, err)
+		}
+		if err := repo.MarkOnline(ctx, d.ID); err != nil {
+			t.Fatalf("MarkOnline %s: %v", fp, err)
+		}
+		return d.ID
+	}
+	linkEdge := func(ak, status string, deviceID uint64, deleted bool) {
+		e := &edgemodel.Edge{AccessKeyID: ak, SecretKeyHash: "x", Status: status}
+		if err := db.Create(e).Error; err != nil {
+			t.Fatalf("create edge %s: %v", ak, err)
+		}
+		if err := db.Create(&model.EdgeDevice{EdgeID: e.ID, DeviceID: deviceID, Type: model.EdgeDeviceRelationHost}).Error; err != nil {
+			t.Fatalf("link edge %s: %v", ak, err)
+		}
+		if deleted {
+			if err := db.Delete(&edgemodel.Edge{}, e.ID).Error; err != nil {
+				t.Fatalf("soft-delete edge %s: %v", ak, err)
+			}
+		}
+	}
+
+	devOnline := mkOnlineDevice("dev-online")    // online edge linked -> stays online
+	devOffEdge := mkOnlineDevice("dev-off-edge") // offline edge linked -> flipped offline
+	devDelEdge := mkOnlineDevice("dev-del-edge") // edge soft-deleted -> flipped offline
+	devNoEdge := mkOnlineDevice("dev-no-edge")   // no edge at all -> flipped offline
+
+	linkEdge("ak-online", "online", devOnline, false)
+	linkEdge("ak-offline", "offline", devOffEdge, false)
+	linkEdge("ak-deleted", "online", devDelEdge, true) // online status but deleted row
+
+	n, err := repo.ReconcileOfflineOrphans(ctx)
+	if err != nil {
+		t.Fatalf("ReconcileOfflineOrphans: %v", err)
+	}
+	if n != 3 {
+		t.Errorf("flipped count = %d, want 3 (off-edge, del-edge, no-edge)", n)
+	}
+
+	assertOnline := func(id uint64, want bool, label string) {
+		d, err := repo.Get(ctx, id)
+		if err != nil {
+			t.Fatalf("Get %s: %v", label, err)
+		}
+		if d.Online != want {
+			t.Errorf("%s online=%v, want %v", label, d.Online, want)
+		}
+	}
+	assertOnline(devOnline, true, "dev-online")
+	assertOnline(devOffEdge, false, "dev-off-edge")
+	assertOnline(devDelEdge, false, "dev-del-edge")
+	assertOnline(devNoEdge, false, "dev-no-edge")
+
+	// Idempotent: a second pass flips nothing (the live device stays online,
+	// the rest are already offline).
+	n2, err := repo.ReconcileOfflineOrphans(ctx)
+	if err != nil {
+		t.Fatalf("second reconcile: %v", err)
+	}
+	if n2 != 0 {
+		t.Errorf("second reconcile flipped %d, want 0 (idempotent)", n2)
+	}
+}
+
+func TestDeleteOfflineWithLinkedEdgesRejectsOnlineDevice(t *testing.T) {
+	db := newDeviceTestDB(t)
+	if err := db.AutoMigrate(&edgemodel.Edge{}); err != nil {
+		t.Fatalf("AutoMigrate edges: %v", err)
+	}
+	repo := NewRepo(db)
+	ctx := context.Background()
+
+	dev, err := repo.FindOrCreateByFingerprint(ctx, sampleDevice("delete-online"))
+	if err != nil {
+		t.Fatalf("create device: %v", err)
+	}
+	if err := repo.MarkOnline(ctx, dev.ID); err != nil {
+		t.Fatalf("MarkOnline: %v", err)
+	}
+
+	err = repo.DeleteOfflineWithLinkedEdges(ctx, dev.ID)
+	if !errors.Is(err, errs.ErrConflict) {
+		t.Fatalf("DeleteOfflineWithLinkedEdges online err = %v, want ErrConflict", err)
+	}
+	if _, err := repo.Get(ctx, dev.ID); err != nil {
+		t.Fatalf("online device should still exist: %v", err)
+	}
+}
+
+func TestDeleteOfflineWithLinkedEdgesRejectsOnlineLinkedEdge(t *testing.T) {
+	db := newDeviceTestDB(t)
+	if err := db.AutoMigrate(&edgemodel.Edge{}); err != nil {
+		t.Fatalf("AutoMigrate edges: %v", err)
+	}
+	repo := NewRepo(db)
+	links := NewEdgeDeviceRepo(db)
+	ctx := context.Background()
+
+	dev, err := repo.FindOrCreateByFingerprint(ctx, sampleDevice("delete-stale-offline"))
+	if err != nil {
+		t.Fatalf("create device: %v", err)
+	}
+	edge := &edgemodel.Edge{AccessKeyID: "ak-delete-online-edge", SecretKeyHash: "secret-hash", Status: edgemodel.StatusOnline}
+	if err := db.Create(edge).Error; err != nil {
+		t.Fatalf("create edge: %v", err)
+	}
+	if err := links.Link(ctx, edge.ID, dev.ID, model.EdgeDeviceRelationHost); err != nil {
+		t.Fatalf("link edge: %v", err)
+	}
+
+	err = repo.DeleteOfflineWithLinkedEdges(ctx, dev.ID)
+	if !errors.Is(err, errs.ErrConflict) {
+		t.Fatalf("DeleteOfflineWithLinkedEdges linked online edge err = %v, want ErrConflict", err)
+	}
+	if _, err := repo.Get(ctx, dev.ID); err != nil {
+		t.Fatalf("device should still exist: %v", err)
+	}
+	var gotEdge edgemodel.Edge
+	if err := db.First(&gotEdge, edge.ID).Error; err != nil {
+		t.Fatalf("linked edge should still exist: %v", err)
+	}
+	if gotEdge.AccessKeyID != edge.AccessKeyID || gotEdge.SecretKeyHash != edge.SecretKeyHash {
+		t.Fatalf("linked edge credentials changed: access=%q secret=%q", gotEdge.AccessKeyID, gotEdge.SecretKeyHash)
+	}
+}
+
+func TestDeleteOfflineWithLinkedEdgesCleansEdgesAndCredentials(t *testing.T) {
+	db := newDeviceTestDB(t)
+	if err := db.AutoMigrate(&edgemodel.Edge{}); err != nil {
+		t.Fatalf("AutoMigrate edges: %v", err)
+	}
+	repo := NewRepo(db)
+	links := NewEdgeDeviceRepo(db)
+	ctx := context.Background()
+
+	dev, err := repo.FindOrCreateByFingerprint(ctx, sampleDevice("delete-offline"))
+	if err != nil {
+		t.Fatalf("create device: %v", err)
+	}
+	edge := &edgemodel.Edge{AccessKeyID: "ak-delete-offline", SecretKeyHash: "secret-hash", Status: edgemodel.StatusOffline}
+	if err := db.Create(edge).Error; err != nil {
+		t.Fatalf("create edge: %v", err)
+	}
+	if err := links.Link(ctx, edge.ID, dev.ID, model.EdgeDeviceRelationHost); err != nil {
+		t.Fatalf("link edge: %v", err)
+	}
+
+	if err := repo.DeleteOfflineWithLinkedEdges(ctx, dev.ID); err != nil {
+		t.Fatalf("DeleteOfflineWithLinkedEdges: %v", err)
+	}
+	if _, err := repo.Get(ctx, dev.ID); !errors.Is(err, errs.ErrNotFound) {
+		t.Fatalf("Get deleted device err = %v, want ErrNotFound", err)
+	}
+	if _, err := links.LookupEdgeForDevice(ctx, dev.ID, model.EdgeDeviceRelationHost); !errors.Is(err, errs.ErrNotFound) {
+		t.Fatalf("LookupEdgeForDevice after delete err = %v, want ErrNotFound", err)
+	}
+
+	var deletedEdge edgemodel.Edge
+	if err := db.Unscoped().First(&deletedEdge, edge.ID).Error; err != nil {
+		t.Fatalf("load unscoped edge: %v", err)
+	}
+	if deletedEdge.DeletedAt == nil {
+		t.Fatalf("linked edge was not soft-deleted")
+	}
+	if deletedEdge.AccessKeyID != "deleted-1" {
+		t.Fatalf("access key after cleanup = %q, want deleted-1", deletedEdge.AccessKeyID)
+	}
+	if deletedEdge.SecretKeyHash != "" {
+		t.Fatalf("secret hash after cleanup = %q, want empty", deletedEdge.SecretKeyHash)
+	}
+}

@@ -1,0 +1,346 @@
+syntax = "proto3";
+
+package ongrid.manager.packetcapture.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/ongridio/ongrid/api/gen/manager/packetcapture/v1;packetcapturev1";
+
+// PacketCaptureService manages sensitive packet-capture requests and their
+// private parsed artifacts. Raw PCAP content is never returned by this API.
+service PacketCaptureService {
+  rpc PreflightPacketCapture(PreflightPacketCaptureRequest) returns (PreflightPacketCaptureResponse);
+  rpc CreatePacketCapture(CreatePacketCaptureRequest) returns (CreatePacketCaptureResponse);
+  rpc GetPacketCapture(GetPacketCaptureRequest) returns (GetPacketCaptureResponse);
+  rpc GetPacketCaptureArtifact(GetPacketCaptureArtifactRequest) returns (GetPacketCaptureArtifactResponse);
+  rpc ListPacketCaptures(ListPacketCapturesRequest) returns (ListPacketCapturesResponse);
+  rpc CancelPacketCapture(CancelPacketCaptureRequest) returns (CancelPacketCaptureResponse);
+  rpc StopPacketCapture(StopPacketCaptureRequest) returns (StopPacketCaptureResponse);
+  rpc ListPacketCapturePackets(ListPacketCapturePacketsRequest) returns (ListPacketCapturePacketsResponse);
+  rpc GetPacketCapturePacket(GetPacketCapturePacketRequest) returns (GetPacketCapturePacketResponse);
+  rpc CreatePacketCaptureSession(CreatePacketCaptureSessionRequest) returns (CreatePacketCaptureSessionResponse);
+  rpc GetPacketCaptureSession(GetPacketCaptureSessionRequest) returns (GetPacketCaptureSessionResponse);
+  rpc ListPacketCaptureSessions(ListPacketCaptureSessionsRequest) returns (ListPacketCaptureSessionsResponse);
+  rpc RefreshPacketCaptureSession(RefreshPacketCaptureSessionRequest) returns (RefreshPacketCaptureSessionResponse);
+  rpc StopPacketCaptureSession(StopPacketCaptureSessionRequest) returns (StopPacketCaptureSessionResponse);
+}
+
+enum CaptureTargetKind {
+  CAPTURE_TARGET_KIND_UNSPECIFIED = 0;
+  CAPTURE_TARGET_KIND_HOST_INTERFACE = 1;
+  CAPTURE_TARGET_KIND_KUBERNETES_POD_NETWORK_NAMESPACE = 2;
+}
+
+enum CaptureDirection {
+  CAPTURE_DIRECTION_UNSPECIFIED = 0;
+  CAPTURE_DIRECTION_INOUT = 1;
+  CAPTURE_DIRECTION_IN = 2;
+  CAPTURE_DIRECTION_OUT = 3;
+}
+
+enum CaptureFormat {
+  CAPTURE_FORMAT_UNSPECIFIED = 0;
+  CAPTURE_FORMAT_PCAP = 1;
+  CAPTURE_FORMAT_PCAPNG = 2;
+}
+
+enum PacketCaptureState {
+  PACKET_CAPTURE_STATE_UNSPECIFIED = 0;
+  PACKET_CAPTURE_STATE_PENDING_APPROVAL = 1;
+  PACKET_CAPTURE_STATE_QUEUED = 2;
+  PACKET_CAPTURE_STATE_DISPATCHING = 3;
+  PACKET_CAPTURE_STATE_CAPTURING = 4;
+  PACKET_CAPTURE_STATE_UPLOADING = 5;
+  PACKET_CAPTURE_STATE_PARSING = 6;
+  PACKET_CAPTURE_STATE_READY = 7;
+  PACKET_CAPTURE_STATE_CANCELLED = 8;
+  PACKET_CAPTURE_STATE_FAILED = 9;
+  PACKET_CAPTURE_STATE_RAW_EXPIRED = 10;
+  PACKET_CAPTURE_STATE_EXPIRED = 11;
+  PACKET_CAPTURE_STATE_DELETED = 12;
+}
+
+enum PacketCaptureSource {
+  PACKET_CAPTURE_SOURCE_UNSPECIFIED = 0;
+  PACKET_CAPTURE_SOURCE_UI = 1;
+  PACKET_CAPTURE_SOURCE_ASSISTANT = 2;
+  PACKET_CAPTURE_SOURCE_WORKFLOW = 3;
+  PACKET_CAPTURE_SOURCE_ALERT = 4;
+}
+
+enum PacketCaptureSessionState {
+  PACKET_CAPTURE_SESSION_STATE_UNSPECIFIED = 0;
+  PACKET_CAPTURE_SESSION_STATE_COLLECTING = 1;
+  PACKET_CAPTURE_SESSION_STATE_READY = 2;
+  PACKET_CAPTURE_SESSION_STATE_PARTIAL = 3;
+  PACKET_CAPTURE_SESSION_STATE_FAILED = 4;
+}
+
+message StructuredPacketFilter {
+  repeated string protocols = 1 [json_name = "protocols"];
+  repeated string source_cidrs = 2 [json_name = "source_cidrs"];
+  repeated string destination_cidrs = 3 [json_name = "destination_cidrs"];
+  repeated uint32 source_ports = 4 [json_name = "source_ports"];
+  repeated uint32 destination_ports = 5 [json_name = "destination_ports"];
+  repeated uint32 ports = 6 [json_name = "ports"];
+  repeated uint32 vlan_ids = 7 [json_name = "vlan_ids"];
+  repeated string tcp_flags = 8 [json_name = "tcp_flags"];
+  string advanced_bpf = 9 [json_name = "advanced_bpf"];
+}
+
+message PacketCaptureTarget {
+  CaptureTargetKind kind = 1 [json_name = "kind"];
+  uint64 device_id = 2 [json_name = "device_id"];
+  uint64 cluster_id = 3 [json_name = "cluster_id"];
+  string namespace = 4 [json_name = "namespace"];
+  string pod_name = 5 [json_name = "pod_name"];
+  string pod_uid = 6 [json_name = "pod_uid"];
+  string container_name = 7 [json_name = "container_name"];
+  string node_name = 8 [json_name = "node_name"];
+  uint64 edge_id = 9 [json_name = "edge_id"];
+  string interface_name = 10 [json_name = "interface_name"];
+  uint32 interface_index = 11 [json_name = "interface_index"];
+  bool host_network = 12 [json_name = "host_network"];
+}
+
+message PacketCaptureLimits {
+  uint32 duration_seconds = 1 [json_name = "duration_seconds"];
+  uint64 max_bytes = 2 [json_name = "max_bytes"];
+  uint64 max_packets = 3 [json_name = "max_packets"];
+  uint32 snaplen = 4 [json_name = "snaplen"];
+  uint32 raw_retention_seconds = 5 [json_name = "raw_retention_seconds"];
+  uint32 parsed_retention_seconds = 6 [json_name = "parsed_retention_seconds"];
+}
+
+message CaptureCapability {
+  bool host_interface = 1 [json_name = "host_interface"];
+  bool pod_network_namespace = 2 [json_name = "pod_network_namespace"];
+  bool af_packet = 3 [json_name = "af_packet"];
+  string cri_runtime = 4 [json_name = "cri_runtime"];
+  repeated string missing_requirements = 5 [json_name = "missing_requirements"];
+  google.protobuf.Timestamp observed_at = 6 [json_name = "observed_at"];
+}
+
+message PreflightPacketCaptureRequest {
+  CaptureTargetKind target_kind = 1 [json_name = "target_kind"];
+  uint64 device_id = 2 [json_name = "device_id"];
+  uint64 cluster_id = 3 [json_name = "cluster_id"];
+  string namespace = 4 [json_name = "namespace"];
+  string pod_name = 5 [json_name = "pod_name"];
+  string container_name = 6 [json_name = "container_name"];
+  string interface_name = 7 [json_name = "interface_name"];
+  uint32 interface_index = 8 [json_name = "interface_index"];
+}
+
+message PreflightPacketCaptureResponse {
+  PacketCaptureTarget resolved_target = 1 [json_name = "resolved_target"];
+  CaptureCapability capability = 2 [json_name = "capability"];
+  repeated string available_interfaces = 3 [json_name = "available_interfaces"];
+  repeated string warnings = 4 [json_name = "warnings"];
+  bool eligible = 5 [json_name = "eligible"];
+}
+
+message CreatePacketCaptureRequest {
+  string idempotency_key = 1 [json_name = "idempotency_key"];
+  CaptureTargetKind target_kind = 2 [json_name = "target_kind"];
+  uint64 device_id = 3 [json_name = "device_id"];
+  uint64 cluster_id = 4 [json_name = "cluster_id"];
+  string namespace = 5 [json_name = "namespace"];
+  string pod_name = 6 [json_name = "pod_name"];
+  string container_name = 7 [json_name = "container_name"];
+  string interface_name = 8 [json_name = "interface_name"];
+  uint32 interface_index = 9 [json_name = "interface_index"];
+  CaptureDirection direction = 10 [json_name = "direction"];
+  StructuredPacketFilter filter = 11 [json_name = "filter"];
+  uint32 duration_seconds = 12 [json_name = "duration_seconds"];
+  uint64 max_bytes = 13 [json_name = "max_bytes"];
+  uint64 max_packets = 14 [json_name = "max_packets"];
+  uint32 snaplen = 15 [json_name = "snaplen"];
+  CaptureFormat format = 16 [json_name = "format"];
+  bool promiscuous_mode = 17 [json_name = "promiscuous_mode"];
+  bool immediate_mode = 18 [json_name = "immediate_mode"];
+  uint32 raw_retention_seconds = 19 [json_name = "raw_retention_seconds"];
+  uint32 parsed_retention_seconds = 20 [json_name = "parsed_retention_seconds"];
+  string title = 21 [json_name = "title"];
+  string description = 22 [json_name = "description"];
+  map<string, string> labels = 23 [json_name = "labels"];
+  PacketCaptureSource source = 24 [json_name = "source"];
+  string workflow_run_id = 25 [json_name = "workflow_run_id"];
+  string incident_id = 26 [json_name = "incident_id"];
+  bool require_approval = 27 [json_name = "require_approval"];
+  string approval_reason = 28 [json_name = "approval_reason"];
+  string requested_timezone = 29 [json_name = "requested_timezone"];
+  string network_namespace = 30 [json_name = "network_namespace"];
+}
+
+message PacketCapture {
+  uint64 id = 1 [json_name = "id"];
+  string request_idempotency_key = 2 [json_name = "request_idempotency_key"];
+  PacketCaptureState state = 3 [json_name = "state"];
+  PacketCaptureSource source = 4 [json_name = "source"];
+  PacketCaptureTarget requested_target = 5 [json_name = "requested_target"];
+  PacketCaptureTarget resolved_target = 6 [json_name = "resolved_target"];
+  StructuredPacketFilter requested_filter = 7 [json_name = "requested_filter"];
+  string canonical_bpf = 8 [json_name = "canonical_bpf"];
+  CaptureDirection direction = 9 [json_name = "direction"];
+  CaptureFormat format = 10 [json_name = "format"];
+  bool promiscuous_mode = 11 [json_name = "promiscuous_mode"];
+  bool immediate_mode = 12 [json_name = "immediate_mode"];
+  PacketCaptureLimits limits = 13 [json_name = "limits"];
+  string title = 14 [json_name = "title"];
+  string description = 15 [json_name = "description"];
+  map<string, string> labels = 16 [json_name = "labels"];
+  string approval_id = 17 [json_name = "approval_id"];
+  string workflow_run_id = 18 [json_name = "workflow_run_id"];
+  string incident_id = 19 [json_name = "incident_id"];
+  uint64 captured_bytes = 20 [json_name = "captured_bytes"];
+  uint64 captured_packets = 21 [json_name = "captured_packets"];
+  string artifact_id = 22 [json_name = "artifact_id"];
+  string error_code = 23 [json_name = "error_code"];
+  string error_detail = 24 [json_name = "error_detail"];
+  google.protobuf.Timestamp started_at = 25 [json_name = "started_at"];
+  google.protobuf.Timestamp finished_at = 26 [json_name = "finished_at"];
+  google.protobuf.Timestamp raw_expires_at = 27 [json_name = "raw_expires_at"];
+  google.protobuf.Timestamp parsed_expires_at = 28 [json_name = "parsed_expires_at"];
+  google.protobuf.Timestamp created_at = 29 [json_name = "created_at"];
+  google.protobuf.Timestamp updated_at = 30 [json_name = "updated_at"];
+}
+
+message CreatePacketCaptureResponse {
+  PacketCapture capture = 1 [json_name = "capture"];
+}
+
+message GetPacketCaptureRequest {
+  uint64 id = 1 [json_name = "id"];
+}
+
+message GetPacketCaptureResponse {
+  PacketCapture capture = 1 [json_name = "capture"];
+}
+
+message GetPacketCaptureArtifactRequest {
+  string artifact_id = 1 [json_name = "artifact_id"];
+}
+
+message GetPacketCaptureArtifactResponse {
+  PacketCapture capture = 1 [json_name = "capture"];
+}
+
+message ListPacketCapturesRequest {
+  uint64 device_id = 1 [json_name = "device_id"];
+  uint64 cluster_id = 2 [json_name = "cluster_id"];
+  PacketCaptureState state = 3 [json_name = "state"];
+  PacketCaptureSource source = 4 [json_name = "source"];
+  int32 page = 5 [json_name = "page"];
+  int32 page_size = 6 [json_name = "page_size"];
+}
+
+message ListPacketCapturesResponse {
+  repeated PacketCapture items = 1 [json_name = "items"];
+  int32 total = 2 [json_name = "total"];
+  int32 page = 3 [json_name = "page"];
+  int32 page_size = 4 [json_name = "page_size"];
+}
+
+message CancelPacketCaptureRequest {
+  uint64 id = 1 [json_name = "id"];
+  string reason = 2 [json_name = "reason"];
+}
+
+message CancelPacketCaptureResponse {
+  PacketCapture capture = 1 [json_name = "capture"];
+}
+
+message StopPacketCaptureRequest {
+  uint64 id = 1 [json_name = "id"];
+}
+
+message StopPacketCaptureResponse {
+  PacketCapture capture = 1 [json_name = "capture"];
+}
+
+message PacketSummary {
+  uint64 ordinal = 1 [json_name = "ordinal"];
+  int64 timestamp_unix_nano = 2 [json_name = "timestamp_unix_nano"];
+  string source = 3 [json_name = "source"];
+  string destination = 4 [json_name = "destination"];
+  string protocol = 5 [json_name = "protocol"];
+  uint32 length = 6 [json_name = "length"];
+  string info = 7 [json_name = "info"];
+  string flow_id = 8 [json_name = "flow_id"];
+}
+
+message ListPacketCapturePacketsRequest {
+  uint64 capture_id = 1 [json_name = "capture_id"];
+  string cursor = 2 [json_name = "cursor"];
+  int32 page_size = 3 [json_name = "page_size"];
+  string filter = 4 [json_name = "filter"];
+  string flow_id = 5 [json_name = "flow_id"];
+}
+
+message ListPacketCapturePacketsResponse {
+  repeated PacketSummary items = 1 [json_name = "items"];
+  string next_cursor = 2 [json_name = "next_cursor"];
+  int64 total = 3 [json_name = "total"];
+}
+
+message GetPacketCapturePacketRequest {
+  uint64 capture_id = 1 [json_name = "capture_id"];
+  uint64 ordinal = 2 [json_name = "ordinal"];
+  bool include_hex = 3 [json_name = "include_hex"];
+}
+
+message PacketField {
+  string name = 1 [json_name = "name"];
+  string value = 2 [json_name = "value"];
+  uint32 offset = 3 [json_name = "offset"];
+  uint32 length = 4 [json_name = "length"];
+  repeated PacketField children = 5 [json_name = "children"];
+}
+
+message GetPacketCapturePacketResponse {
+  PacketSummary summary = 1 [json_name = "summary"];
+  repeated PacketField protocol_tree = 2 [json_name = "protocol_tree"];
+  bytes raw_bytes = 3 [json_name = "raw_bytes"];
+  bool raw_bytes_truncated = 4 [json_name = "raw_bytes_truncated"];
+}
+
+message PacketCaptureSessionTarget {
+  uint64 device_id = 1 [json_name = "device_id"];
+  string interface_name = 2 [json_name = "interface_name"];
+  string network_namespace = 3 [json_name = "network_namespace"];
+}
+
+message PacketCaptureSession {
+  string public_id = 1 [json_name = "public_id"];
+  PacketCaptureSessionState state = 2 [json_name = "state"];
+  string title = 3 [json_name = "title"];
+  string description = 4 [json_name = "description"];
+  string canonical_filter = 5 [json_name = "canonical_filter"];
+  uint32 duration_seconds = 6 [json_name = "duration_seconds"];
+  google.protobuf.Timestamp planned_start_at = 7 [json_name = "planned_start_at"];
+  string clock_quality = 8 [json_name = "clock_quality"];
+  google.protobuf.Timestamp created_at = 9 [json_name = "created_at"];
+}
+
+message CreatePacketCaptureSessionRequest {
+  repeated PacketCaptureSessionTarget targets = 1 [json_name = "targets"];
+  string filter = 2 [json_name = "filter"];
+  uint32 duration_seconds = 3 [json_name = "duration_seconds"];
+  uint64 max_bytes = 4 [json_name = "max_bytes"];
+  uint64 max_packets = 5 [json_name = "max_packets"];
+  uint32 snaplen = 6 [json_name = "snaplen"];
+  bool promiscuous_mode = 7 [json_name = "promiscuous_mode"];
+  string title = 8 [json_name = "title"];
+  string description = 9 [json_name = "description"];
+}
+
+message CreatePacketCaptureSessionResponse { PacketCaptureSession session = 1 [json_name = "session"]; repeated PacketCapture captures = 2 [json_name = "captures"]; repeated string member_errors = 3 [json_name = "member_errors"]; }
+message GetPacketCaptureSessionRequest { string public_id = 1 [json_name = "public_id"]; }
+message GetPacketCaptureSessionResponse { PacketCaptureSession session = 1 [json_name = "session"]; repeated PacketCapture captures = 2 [json_name = "captures"]; }
+message ListPacketCaptureSessionsRequest { int32 page = 1 [json_name = "page"]; int32 page_size = 2 [json_name = "page_size"]; }
+message ListPacketCaptureSessionsResponse { repeated PacketCaptureSession items = 1 [json_name = "items"]; int32 total = 2 [json_name = "total"]; }
+message RefreshPacketCaptureSessionRequest { string public_id = 1 [json_name = "public_id"]; }
+message RefreshPacketCaptureSessionResponse { PacketCaptureSession session = 1 [json_name = "session"]; repeated PacketCapture captures = 2 [json_name = "captures"]; }
+message StopPacketCaptureSessionRequest { string public_id = 1 [json_name = "public_id"]; }
+message StopPacketCaptureSessionResponse { PacketCaptureSession session = 1 [json_name = "session"]; repeated PacketCapture captures = 2 [json_name = "captures"]; }

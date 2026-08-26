@@ -1,0 +1,50 @@
+apiVersion: 1
+
+# Tempo datasource provisioning (ADR-013). Built-in Tempo defaults to the
+# `tempo` docker service. traceToLogs enables click-through from a span
+# into the matching log stream (Loki, ADR-012). tracesToMetrics enables
+# RED panels (rate/error/duration) sourced from Tempo's spanmetrics
+# generator that remote_writes into ongrid-prometheus.
+datasources:
+  - name: ongrid-tempo
+    uid: ongrid-tempo
+    type: tempo
+    access: proxy
+    # Grafana env interpolation does NOT support shell-style :- defaults
+    # (v0.7.40 fix). Default lives in the grafana service compose env.
+    url: ${ONGRID_TRACE_QUERY_URL}
+    isDefault: false
+    editable: false
+    jsonData:
+      httpMethod: GET
+      tracesToLogsV2:
+        datasourceUid: ongrid-loki
+        spanStartTimeShift: -1h
+        spanEndTimeShift: 1h
+        tags:
+          - key: service.name
+            value: service
+          - key: edge_id
+            value: edge_id
+        filterByTraceID: true
+        filterBySpanID: false
+      tracesToMetrics:
+        datasourceUid: ongrid-prometheus
+        tags:
+          - key: service.name
+            value: service
+          - key: span.kind
+            value: span_kind
+        queries:
+          - name: 'Sample rate'
+            query: 'sum(rate(traces_spanmetrics_calls_total{$$__tags}[5m])) by (service)'
+          - name: 'Error rate'
+            query: 'sum(rate(traces_spanmetrics_calls_total{$$__tags, status_code="STATUS_CODE_ERROR"}[5m])) by (service)'
+      serviceMap:
+        datasourceUid: ongrid-prometheus
+      nodeGraph:
+        enabled: true
+      search:
+        hide: false
+      lokiSearch:
+        datasourceUid: ongrid-loki

@@ -1,0 +1,28 @@
+# ongrid frontier broker config (upstream singchia/frontier).
+#
+# Schema: see https://github.com/singchia/frontier (etc/frontier.yaml).
+# We only set what's needed for ongrid's MVP single-broker topology. The
+# upstream image's default config search path is /usr/conf/frontier.yaml;
+# the docker-compose mounts this file there read-only.
+#
+# Ports:
+#   40011  servicebound — manager dials in via the dataplane SDK.
+#                         Container-internal only; never published to host.
+#   40012  edgebound    — edges dial in (geminio + Meta JSON).
+#                         Compose maps host ${ONGRID_TUNNEL_PORT:-40012} → 40012
+#                         so the public-facing tunnel port stays 40012.
+
+edgebound:
+  listen:
+    network: tcp
+    addr: 0.0.0.0:40012
+  # Ongrid's manager registers the GetEdgeID authentication RPC. Fail closed
+  # while that RPC is unavailable (for example during a restart), otherwise
+  # Frontier assigns an unauthenticated temporary ID that remains attached to
+  # the live edge connection after the manager recovers.
+  edgeid_alloc_when_no_idservice_on: false
+
+servicebound:
+  listen:
+    network: tcp
+    addr: 0.0.0.0:40011

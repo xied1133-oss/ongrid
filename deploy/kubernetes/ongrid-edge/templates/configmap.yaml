@@ -1,0 +1,46 @@
+{{- $controllerMetrics := default dict .Values.controller.metrics -}}
+{{- $standaloneMetrics := default dict .Values.kubernetesMetrics -}}
+{{- $metricsEndpoint := include "ongrid-edge.k8sMetricsEndpoint" . -}}
+{{- $metricsInterval := default "30s" $controllerMetrics.interval -}}
+{{- $metricsTimeout := default "15s" $controllerMetrics.timeout -}}
+{{- $metricsPushTimeout := default "30s" $controllerMetrics.pushTimeout -}}
+{{- $metricsSampleLimit := default 250000 $controllerMetrics.sampleLimit -}}
+{{- $metricsBatchSampleLimit := default 10000 $controllerMetrics.batchSampleLimit -}}
+{{- $metricsBatchByteLimit := default 4194304 $controllerMetrics.batchByteLimit -}}
+{{- if eq (include "ongrid-edge.kubernetesMetricsMode" .) "scraper" -}}
+{{- $metricsEndpoint = include "ongrid-edge.kubernetesMetricsEndpoint" . -}}
+{{- $metricsInterval = default $metricsInterval $standaloneMetrics.interval -}}
+{{- $metricsTimeout = default $metricsTimeout $standaloneMetrics.timeout -}}
+{{- $metricsPushTimeout = default $metricsPushTimeout $standaloneMetrics.pushTimeout -}}
+{{- $metricsSampleLimit = default $metricsSampleLimit $standaloneMetrics.sampleLimit -}}
+{{- $metricsBatchSampleLimit = default $metricsBatchSampleLimit $standaloneMetrics.batchSampleLimit -}}
+{{- $metricsBatchByteLimit = default $metricsBatchByteLimit $standaloneMetrics.batchByteLimit -}}
+{{- end -}}
+{{- $appMetricsDiscoveryEnabled := include "ongrid-edge.kubernetesAppMetricsDiscoveryEnabled" . -}}
+{{- $controllerInventory := default dict .Values.controller.inventory -}}
+{{- if ne .Values.mode "full-node" -}}
+{{- fail (printf "unsupported mode %q; supported mode is full-node" .Values.mode) -}}
+{{- end -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ongrid-edge.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ongrid-edge.labels" . | nindent 4 }}
+data:
+  mode: {{ .Values.mode | quote }}
+  manager-public-url: {{ required "manager.publicURL is required" .Values.manager.publicURL | quote }}
+  manager-tunnel-addr: {{ required "manager.tunnelAddr is required" .Values.manager.tunnelAddr | quote }}
+  k8s-inventory-watch: {{ default true $controllerInventory.watch | quote }}
+  k8s-inventory-full-sync-interval: {{ default "10m" $controllerInventory.fullSyncInterval | quote }}
+  k8s-metrics-endpoint: {{ default "" $metricsEndpoint | quote }}
+  k8s-metrics-interval: {{ $metricsInterval | quote }}
+  k8s-metrics-timeout: {{ $metricsTimeout | quote }}
+  k8s-metrics-push-timeout: {{ $metricsPushTimeout | quote }}
+  k8s-metrics-sample-limit: {{ $metricsSampleLimit | int | quote }}
+  k8s-metrics-batch-sample-limit: {{ $metricsBatchSampleLimit | int | quote }}
+  k8s-metrics-batch-byte-limit: {{ $metricsBatchByteLimit | int | quote }}
+  k8s-metrics-max-retries: {{ default 3 $standaloneMetrics.maxRetries | int | quote }}
+  k8s-metrics-retry-backoff: {{ default "500ms" $standaloneMetrics.retryBackoff | quote }}
+  k8s-app-metrics-discovery: {{ $appMetricsDiscoveryEnabled | quote }}

@@ -1,0 +1,209 @@
+{{- define "ongrid-edge.name" -}}
+{{- $architecture := default "" .Values.image.architecture -}}
+{{- if and $architecture (ne $architecture "amd64") (ne $architecture "arm64") -}}
+{{- fail "image.architecture must be empty, amd64, or arm64" -}}
+{{- end -}}
+{{- .Chart.Name | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "ongrid-edge.fullname" -}}
+{{- printf "%s" (include "ongrid-edge.name" .) -}}
+{{- end -}}
+
+{{- define "ongrid-edge.labels" -}}
+app.kubernetes.io/name: {{ include "ongrid-edge.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+ongrid.io/k8s-mode: {{ .Values.mode | quote }}
+ongrid.io/cluster-id: {{ .Values.enrollment.clusterID | quote }}
+{{- end -}}
+
+{{- define "ongrid-edge.nodeServiceAccount" -}}
+{{- default (printf "%s-node" (include "ongrid-edge.fullname" .)) .Values.node.serviceAccountName -}}
+{{- end -}}
+
+{{- define "ongrid-edge.controllerServiceAccount" -}}
+{{- default (printf "%s-controller" (include "ongrid-edge.fullname" .)) .Values.controller.serviceAccountName -}}
+{{- end -}}
+
+{{- define "ongrid-edge.telemetryGatewayServiceAccount" -}}
+{{- $gw := default dict .Values.telemetryGateway -}}
+{{- default (printf "%s-telemetry-gateway" (include "ongrid-edge.fullname" .)) $gw.serviceAccountName -}}
+{{- end -}}
+
+{{- define "ongrid-edge.metricsScraperServiceAccount" -}}
+{{- $metrics := default dict .Values.kubernetesMetrics -}}
+{{- default (printf "%s-metrics-scraper" (include "ongrid-edge.fullname" .)) $metrics.serviceAccountName -}}
+{{- end -}}
+
+{{- define "ongrid-edge.kubeStateMetricsName" -}}
+{{- printf "%s-kube-state-metrics" (include "ongrid-edge.fullname" .) -}}
+{{- end -}}
+
+{{- define "ongrid-edge.telemetryGatewayName" -}}
+{{- printf "%s-telemetry-gateway" (include "ongrid-edge.fullname" .) -}}
+{{- end -}}
+
+{{- define "ongrid-edge.telemetryBackendLabel" -}}
+ongrid.io/telemetry-backend
+{{- end -}}
+
+{{- define "ongrid-edge.upgradeHookServiceAccount" -}}
+{{- printf "%s-upgrade-preflight" (include "ongrid-edge.fullname" .) -}}
+{{- end -}}
+
+{{- define "ongrid-edge.controllerCredentialSecretName" -}}
+{{- printf "%s-controller-credentials" (include "ongrid-edge.fullname" .) -}}
+{{- end -}}
+
+{{- define "ongrid-edge.telemetryCredentialSecretName" -}}
+{{- printf "%s-telemetry-credentials" (include "ongrid-edge.fullname" .) -}}
+{{- end -}}
+
+{{- define "ongrid-edge.telemetryGatewayMode" -}}
+{{- $gw := default dict .Values.telemetryGateway -}}
+{{- $mode := default "deployment" $gw.mode -}}
+{{- if and (ne $mode "embedded") (ne $mode "deployment") -}}
+{{- fail "telemetryGateway.mode must be embedded or deployment" -}}
+{{- end -}}
+{{- $mode -}}
+{{- end -}}
+
+{{- define "ongrid-edge.kubernetesMetricsMode" -}}
+{{- $metrics := default dict .Values.kubernetesMetrics -}}
+{{- $mode := default "scraper" $metrics.mode -}}
+{{- if and (ne $mode "controller") (ne $mode "scraper") -}}
+{{- fail "kubernetesMetrics.mode must be controller or scraper" -}}
+{{- end -}}
+{{- $mode -}}
+{{- end -}}
+
+{{- define "ongrid-edge.kubernetesMetricsEnabled" -}}
+{{- $metrics := default dict .Values.kubernetesMetrics -}}
+{{- $controllerMetrics := default dict .Values.controller.metrics -}}
+{{- if kindIs "bool" $metrics.enabled -}}
+{{- if $metrics.enabled -}}true{{- else -}}false{{- end -}}
+{{- else if or $metrics.endpoint (default false $controllerMetrics.enabled) (eq (include "ongrid-edge.kubeStateMetricsEnabled" .) "true") (eq (include "ongrid-edge.kubernetesAppMetricsDiscoveryEnabled" .) "true") -}}
+true
+{{- else -}}
+false
+{{- end -}}
+{{- end -}}
+
+{{- define "ongrid-edge.kubernetesAppMetricsDiscoveryEnabled" -}}
+{{- $metrics := default dict .Values.kubernetesMetrics -}}
+{{- $app := default dict $metrics.appDiscovery -}}
+{{- $controllerMetrics := default dict .Values.controller.metrics -}}
+{{- $legacyApp := default dict $controllerMetrics.appDiscovery -}}
+{{- if kindIs "bool" $app.enabled -}}
+{{- if $app.enabled -}}true{{- else -}}false{{- end -}}
+{{- else if kindIs "bool" $legacyApp.enabled -}}
+{{- if $legacyApp.enabled -}}true{{- else -}}false{{- end -}}
+{{- else -}}
+false
+{{- end -}}
+{{- end -}}
+
+{{- define "ongrid-edge.memoryQuantityMiB" -}}
+{{- $raw := toString . -}}
+{{- if regexMatch "^[1-9][0-9]*Mi$" $raw -}}
+{{- trimSuffix "Mi" $raw -}}
+{{- else if regexMatch "^[1-9][0-9]*Gi$" $raw -}}
+{{- mul (int (trimSuffix "Gi" $raw)) 1024 -}}
+{{- else -}}
+{{- fail (printf "telemetryGateway.resources.limits.memory must be a whole Mi or Gi quantity, got %q" $raw) -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "ongrid-edge.durationSeconds" -}}
+{{- $raw := toString . -}}
+{{- if regexMatch "^[1-9][0-9]*s$" $raw -}}
+{{- trimSuffix "s" $raw -}}
+{{- else if regexMatch "^[1-9][0-9]*m$" $raw -}}
+{{- mul (int (trimSuffix "m" $raw)) 60 -}}
+{{- else if regexMatch "^[1-9][0-9]*h$" $raw -}}
+{{- mul (int (trimSuffix "h" $raw)) 3600 -}}
+{{- else -}}
+{{- fail (printf "upgrade.migrationHook.timeout must be a whole second, minute, or hour duration, got %q" $raw) -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "ongrid-edge.telemetryGatewayEnabled" -}}
+{{- $gw := default dict .Values.telemetryGateway -}}
+{{- if kindIs "bool" $gw.enabled -}}
+{{- if $gw.enabled -}}true{{- else -}}false{{- end -}}
+{{- else -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{- define "ongrid-edge.upgradeMigrationHookEnabled" -}}
+{{- $upgrade := default dict .Values.upgrade -}}
+{{- $hook := default dict $upgrade.migrationHook -}}
+{{- if kindIs "bool" $hook.enabled -}}
+{{- if $hook.enabled -}}true{{- else -}}false{{- end -}}
+{{- else -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{- define "ongrid-edge.kubeStateMetricsEnabled" -}}
+{{- $ksm := default dict .Values.kubeStateMetrics -}}
+{{- if kindIs "bool" $ksm.enabled -}}
+{{- if $ksm.enabled -}}true{{- else -}}false{{- end -}}
+{{- else -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{- define "ongrid-edge.kubeStateMetricsServiceAccount" -}}
+{{- $ksm := default dict .Values.kubeStateMetrics -}}
+{{- default (include "ongrid-edge.kubeStateMetricsName" .) $ksm.serviceAccountName -}}
+{{- end -}}
+
+{{- define "ongrid-edge.kubeStateMetricsEndpoint" -}}
+{{- $ksm := default dict .Values.kubeStateMetrics -}}
+{{- $port := default 8080 $ksm.port -}}
+{{- printf "http://%s.%s.svc:%v/metrics" (include "ongrid-edge.kubeStateMetricsName" .) .Release.Namespace $port -}}
+{{- end -}}
+
+{{- define "ongrid-edge.k8sMetricsEndpoint" -}}
+{{- $controllerMetrics := default dict .Values.controller.metrics -}}
+{{- if $controllerMetrics.endpoint -}}
+{{- $controllerMetrics.endpoint -}}
+{{- else if eq (include "ongrid-edge.kubeStateMetricsEnabled" .) "true" -}}
+{{- include "ongrid-edge.kubeStateMetricsEndpoint" . -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "ongrid-edge.kubernetesMetricsEndpoint" -}}
+{{- $metrics := default dict .Values.kubernetesMetrics -}}
+{{- $controllerMetrics := default dict .Values.controller.metrics -}}
+{{- if $metrics.endpoint -}}
+{{- $metrics.endpoint -}}
+{{- else if $controllerMetrics.endpoint -}}
+{{- $controllerMetrics.endpoint -}}
+{{- else if eq (include "ongrid-edge.kubeStateMetricsEnabled" .) "true" -}}
+{{- include "ongrid-edge.kubeStateMetricsEndpoint" . -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "ongrid-edge.k8sMetricsEnabled" -}}
+{{- $controllerMetrics := default dict .Values.controller.metrics -}}
+{{- if and (eq (include "ongrid-edge.kubernetesMetricsEnabled" .) "true") (eq (include "ongrid-edge.kubernetesMetricsMode" .) "controller") (or (default false $controllerMetrics.enabled) (eq (include "ongrid-edge.kubeStateMetricsEnabled" .) "true") (eq (include "ongrid-edge.kubernetesAppMetricsDiscoveryEnabled" .) "true")) -}}true{{- else -}}false{{- end -}}
+{{- end -}}
+
+{{- define "ongrid-edge.kubeStateMetricsResources" -}}
+{{- $ksm := default dict .Values.kubeStateMetrics -}}
+{{- if $ksm.collectors -}}
+{{- join "," $ksm.collectors -}}
+{{- else -}}
+{{- "pods,deployments,statefulsets,daemonsets,replicasets,jobs,cronjobs,services,nodes,namespaces" -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "ongrid-edge.image" -}}
+{{- $repo := default "docker.cnb.cool/ongridio/ongrid-edge" .Values.image.repository -}}
+{{- printf "%s:%s" $repo (default .Chart.AppVersion .Values.image.tag) -}}
+{{- end -}}

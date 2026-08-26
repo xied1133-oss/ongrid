@@ -1,0 +1,683 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Semantic design tokens (dark theme).
+   Values are bare RGB triplets so we can compose them with /<alpha-value>
+   via tailwind's color extension (`rgb(var(--token) / <alpha-value>)`).
+   Light/branded themes can later override `:root.<theme>` selectors. */
+:root.dark {
+  /* Background palette tinted ~3% toward the brand purple (#8C6DF0)
+     so the canvas feels related to the logo without going purple-loud.
+     Pure zinc-950 read as "anonymous black"; this reads as "Ongrid". */
+  --bg: 11 11 17;           /* near-zinc-950 + tiny purple cast */
+  --card: 23 23 32;         /* near-zinc-900 + tiny purple cast */
+  --card-soft: 23 23 32 / 0.4;
+  --border: 40 40 50;       /* near-zinc-800 + cool */
+  --border-soft: 40 40 50 / 0.6;
+  --text: 244 244 245;      /* zinc-100 — unchanged for legibility */
+  --text-muted: 161 161 170;
+  --text-faint: 113 113 122;
+  /* Brand accent — middle stop of the logo's left pillar (#8C6DF0).
+     Within RGB rounding of violet-500 but pinned to the design token. */
+  --accent: 140 109 240;
+  --accent-fg: 255 255 255;
+  /* Info reads off the right pillar's mid-stop (#30A6D0) so badges /
+     informational chips feel related to the brand rather than generic blue. */
+  --info: 48 166 208;
+  --warn: 245 158 11;      /* amber-500 */
+  --ok: 16 185 129;        /* emerald-500 */
+  --danger: 239 68 68;     /* red-500 */
+}
+
+/* Light theme. Tuned for "GitHub-light / Linear-light" feel:
+   page bg slightly cool off-white, cards pure white, borders clearly
+   visible so cards have edges (not just floating). Text contrast at
+   AA across all 3 tiers. Accent purple is reserved for badges /
+   highlights — the primary CTA uses a neutral dark fill (see remap
+   below) so the UI doesn't feel like "purple soup". */
+:root.light {
+  --bg: 244 245 248;          /* GitHub-ish cool off-white */
+  --card: 255 255 255;        /* pure white */
+  --card-soft: 250 250 252 / 0.85;
+  --border: 209 213 219;      /* zinc-300, clearly visible */
+  --border-soft: 226 232 240 / 0.9;
+  --text: 17 24 39;           /* slate-900 */
+  --text-muted: 71 85 105;    /* slate-600 */
+  --text-faint: 100 116 139;  /* slate-500 */
+  --accent: 109 87 217;       /* slightly desaturated brand purple */
+  --accent-fg: 255 255 255;
+  --info: 14 116 144;         /* cyan-700 for AA on white */
+  --warn: 180 83 9;           /* amber-700 */
+  --ok: 4 120 87;             /* emerald-700 */
+  --danger: 185 28 28;        /* red-700 */
+}
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* html background uses the --bg token so dark/light flip via the
+   :root.<mode> class above without needing inline styles. */
+html {
+  background-color: rgb(var(--bg));
+}
+html.dark  { color-scheme: dark; }
+html.light { color-scheme: light; }
+html.light body { background-color: rgb(var(--bg)); color: rgb(var(--text)); }
+
+/* -------------------------------------------------------------------
+   Light-mode zinc remap.
+   The codebase hardcodes Tailwind zinc-* utilities all over
+   (~1500 occurrences across ~80 components). Migrating each to
+   semantic tokens (bg-card / text-text / border-border) is a multi-day
+   refactor; until then this block re-maps the most common patterns
+   when html.light is applied. Higher specificity (.light .bg-zinc-900)
+   wins over Tailwind's plain .bg-zinc-900 declaration.
+
+   Mapping rule (rough):
+     bg-zinc-950       → --bg (page canvas)
+     bg-zinc-900       → --card (cards, sidebars)
+     bg-zinc-800       → slightly elevated, hover states
+     text-zinc-100/200 → --text (primary)
+     text-zinc-300/400 → --text-muted (secondary)
+     text-zinc-500/600 → --text-faint (tertiary)
+     border-zinc-*     → --border family
+     ring-zinc-*       → --border family
+
+   Cases where this is wrong (e.g. code blocks that stay dark) can opt
+   out by adding `dark:bg-zinc-900` instead of plain `bg-zinc-900` —
+   Tailwind keeps the `dark:` variant scoped to .dark and our override
+   doesn't touch it.
+   ------------------------------------------------------------------- */
+html.light .bg-zinc-950           { background-color: rgb(var(--bg)); }
+html.light .bg-zinc-900           { background-color: rgb(var(--card)); }
+html.light .bg-zinc-800           { background-color: rgb(226 232 240); }  /* slate-200 — clearly visible active/hover */
+html.light .bg-zinc-700           { background-color: rgb(203 213 225); }  /* slate-300 */
+html.light .bg-zinc-500           { background-color: rgb(100 116 139); }  /* slate-500 mid */
+
+/* Transparency variants — Tailwind emits a DISTINCT class for `/NN`
+   opacity (e.g. .bg-zinc-900\/20), which the plain .bg-zinc-900 override
+   above does NOT match, so those surfaces stayed dark in light mode
+   (Traces table rows/header/expanded rows). Map the used ones to light. */
+html.light .bg-zinc-900\/20              { background-color: rgb(248 250 252); }
+html.light .bg-zinc-900\/40              { background-color: rgb(241 245 249); }
+html.light .bg-zinc-900\/60              { background-color: rgb(241 245 249); }
+html.light .bg-zinc-950\/20              { background-color: rgb(248 250 252); }
+html.light .bg-zinc-950\/30              { background-color: rgb(248 250 252); }
+html.light .bg-zinc-950\/40              { background-color: rgb(248 250 252); }
+html.light .hover\:bg-zinc-900\/50:hover { background-color: rgb(226 232 240); }
+
+/* Primary-button pattern: `bg-zinc-100 text-zinc-900 hover:bg-white`
+   is the high-contrast filled CTA used across the app (保存 / 创建 /
+   登录 / etc). In dark it reads as a near-white pill on dark canvas.
+   In light, simply leaving zinc-100 as light + zinc-900 as dark would
+   leave a near-white button on near-white card — invisible. We flip
+   the role: dark fill + light text. Same visual hierarchy (neutral
+   high-contrast), mode-appropriate palette. Accent purple stays
+   reserved for badges / chips / brand surfaces — not the bulk of
+   buttons, which would make the UI feel like "purple soup". */
+html.light .bg-zinc-100.text-zinc-900 {
+  background-color: rgb(24 24 27);   /* zinc-900 dark fill */
+  color: rgb(244 244 245);            /* zinc-100 light text */
+}
+html.light .bg-zinc-100.text-zinc-900:hover {
+  background-color: rgb(39 39 42);   /* zinc-800 hover */
+}
+
+/* Standalone bg-zinc-100 / bg-zinc-200 — keep light (e.g. inactive
+   pills on a card). */
+html.light .bg-zinc-100           { background-color: rgb(244 244 250); }
+html.light .bg-zinc-200           { background-color: rgb(231 231 240); }
+
+html.light .text-zinc-50          { color: rgb(var(--text)); }
+html.light .text-zinc-700         { color: rgb(var(--text-muted)); }
+
+html.light .bg-zinc-950\/30,
+html.light .bg-zinc-950\/40,
+html.light .bg-zinc-950\/60,
+html.light .bg-zinc-950\/70,
+html.light .bg-zinc-950\/80       { background-color: rgb(var(--bg) / 0.5); }
+html.light .bg-zinc-700\/40       { background-color: rgb(241 245 249); }
+html.light .bg-zinc-900\/30,
+html.light .bg-zinc-900\/40,
+html.light .bg-zinc-900\/50,
+html.light .bg-zinc-900\/60,
+html.light .bg-zinc-900\/70,
+html.light .bg-zinc-900\/80       { background-color: rgb(var(--card-soft)); }
+html.light .bg-zinc-800\/40,
+html.light .bg-zinc-800\/60,
+html.light .bg-zinc-800\/80       { background-color: rgb(226 232 240 / 0.7); }
+
+/* Device and network-discovery tables need opaque light surfaces. Their
+   scrolling container and header otherwise inherit transparent zinc fills,
+   which can expose a dark background beneath an embedded table. */
+html.light .device-list-table,
+html.light .network-discovery-table { background-color: rgb(var(--card)); }
+html.light .device-list-table__header,
+html.light .network-discovery-table__header { background-color: rgb(248 250 252); }
+
+html.light .text-zinc-100         { color: rgb(var(--text)); }
+html.light .text-zinc-200         { color: rgb(var(--text)); }
+html.light .text-zinc-300         { color: rgb(var(--text-muted)); }
+html.light .text-zinc-400         { color: rgb(var(--text-muted)); }
+html.light .text-zinc-500         { color: rgb(var(--text-faint)); }
+html.light .text-zinc-600         { color: rgb(var(--text-faint)); }
+
+html.light .border-zinc-600       { border-color: rgb(148 163 184); }  /* slate-400 */
+html.light .border-zinc-700       { border-color: rgb(203 213 225); }  /* slate-300 — accent border for buttons */
+html.light .border-zinc-800       { border-color: rgb(var(--border)); }
+html.light .border-zinc-800\/40,
+html.light .border-zinc-800\/60   { border-color: rgb(var(--border-soft)); }
+/* zinc-900 borders are used by per-row table borders (Monitor process
+   top-N) and other dense rows. In dark they're near-black-on-near-black
+   subtle dividers; in light the same RGB is ~black on white, which
+   shouts. Same treatment as the divide-* family: nearly invisible. */
+html.light .border-zinc-900       { border-color: rgb(226 232 240); }  /* slate-200 */
+html.light .border-zinc-900\/40   { border-color: rgb(241 245 249); }  /* slate-100 */
+
+html.light .ring-zinc-600         { --tw-ring-color: rgb(180 180 195); }
+html.light .ring-zinc-700         { --tw-ring-color: rgb(var(--border)); }
+html.light .ring-zinc-800         { --tw-ring-color: rgb(var(--border)); }
+
+/* List / table dividers in light mode want to recede — original
+   zinc-800 reads as near-black on white, drawing more attention than
+   the row content. Soften to slate-100 so rows separate but don't
+   shout. NOTE: selector mirrors Tailwind's compiled
+   `> :not([hidden]) ~ :not([hidden])` so we win on specificity; the
+   prior `> * + *` version was lower-specificity and got overridden. */
+html.light .divide-zinc-800\/40 > :not([hidden]) ~ :not([hidden]),
+html.light .divide-zinc-800\/60 > :not([hidden]) ~ :not([hidden]),
+html.light .divide-zinc-800\/80 > :not([hidden]) ~ :not([hidden]),
+html.light .divide-zinc-800 > :not([hidden]) ~ :not([hidden]),
+html.light .divide-zinc-700\/60 > :not([hidden]) ~ :not([hidden]),
+html.light .divide-zinc-700 > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgb(241 245 249);  /* slate-100 — barely-there separator */
+}
+
+html.light .placeholder\:text-zinc-500::placeholder,
+html.light .placeholder\:text-zinc-600::placeholder { color: rgb(var(--text-faint)); }
+
+/* hover: variants that flip the same way */
+html.light .hover\:bg-zinc-800:hover       { background-color: rgb(226 232 240); }
+html.light .hover\:bg-zinc-800\/40:hover   { background-color: rgb(226 232 240 / 0.5); }
+html.light .hover\:bg-zinc-800\/60:hover   { background-color: rgb(226 232 240 / 0.7); }
+html.light .hover\:bg-zinc-900:hover       { background-color: rgb(241 245 249); }  /* slate-100 */
+html.light .hover\:bg-zinc-900\/30:hover,
+html.light .hover\:bg-zinc-900\/40:hover   { background-color: rgb(241 245 249 / 0.7); }
+html.light .hover\:bg-zinc-900\/60:hover   { background-color: rgb(248 250 252); }
+html.light .hover\:bg-zinc-700:hover       { background-color: rgb(203 213 225); }
+html.light .hover\:bg-red-900\/30:hover    { background-color: rgb(254 226 226); }
+html.light .hover\:text-zinc-100:hover     { color: rgb(var(--text)); }
+html.light .hover\:text-zinc-200:hover     { color: rgb(var(--text)); }
+html.light .hover\:text-zinc-300:hover     { color: rgb(var(--text-muted)); }
+html.light .hover\:border-zinc-500:hover,
+html.light .hover\:border-zinc-600:hover,
+html.light .hover\:border-zinc-700:hover   { border-color: rgb(180 180 195); }
+
+/* focus: variants — focused inputs just brighten their own border to a soft
+   gray (no heavy frame, no outer ring). focus-within (the chat composer wraps
+   its textarea in a bordered container) needs the same remap, else the dark
+   zinc-700 border renders near-black on the light theme. */
+html.light .focus\:border-zinc-600:focus              { border-color: rgb(140 140 160); }
+html.light .focus-within\:border-zinc-700:focus-within { border-color: rgb(140 140 160); }
+
+/* In a few places code blocks / inputs use bg-zinc-100 INTENTIONALLY
+   light. Keep them as-is by NOT including bg-zinc-100 in the override
+   list above. Tailwind's unconditional rule still applies. */
+
+/* Soft-fill chip / CTA pattern used widely:
+     bg-{color}-500/10 text-{color}-200|300 border-{color}-500/30|40
+   In dark this reads as a tinted pill. In light the /10 alpha on white
+   is near-white and the 200/300 text shade is also near-white →
+   the whole chip vanishes. Mapping rule: bg → color-50/100 (clearly
+   tinted), text → color-700 (high contrast on the tinted bg), border
+   stays at the original mid-shade for separation.
+   When this pattern is used as a CTA *button* the visible border + dark
+   text + tinted fill still reads as "this is clickable" — no need to
+   force a solid fill. */
+html.light .bg-indigo-500\/10        { background-color: rgb(238 242 255); }   /* indigo-50 */
+html.light .bg-indigo-500\/15        { background-color: rgb(224 231 255); }   /* indigo-100 */
+html.light .hover\:bg-indigo-500\/20:hover { background-color: rgb(224 231 255); }
+html.light .text-indigo-200,
+html.light .text-indigo-300          { color: rgb(67 56 202); }                /* indigo-700 */
+html.light .border-indigo-500\/30,
+html.light .border-indigo-500\/40    { border-color: rgb(165 180 252); }       /* indigo-300 */
+
+html.light .bg-sky-500\/10           { background-color: rgb(224 242 254); }   /* sky-100 */
+html.light .text-sky-200,
+html.light .text-sky-300             { color: rgb(3 105 161); }                /* sky-700 */
+html.light .border-sky-500\/30,
+html.light .border-sky-500\/40       { border-color: rgb(125 211 252); }       /* sky-300 */
+
+html.light .bg-cyan-500\/10          { background-color: rgb(207 250 254); }   /* cyan-100 */
+html.light .text-cyan-300            { color: rgb(14 116 144); }               /* cyan-700 */
+html.light .ring-cyan-500\/30        { --tw-ring-color: rgb(103 232 249); }    /* cyan-300 */
+
+html.light .bg-fuchsia-500\/10       { background-color: rgb(250 232 255); }   /* fuchsia-100 */
+html.light .text-fuchsia-300         { color: rgb(162 28 175); }               /* fuchsia-700 */
+html.light .ring-fuchsia-500\/30     { --tw-ring-color: rgb(240 171 252); }    /* fuchsia-300 */
+
+html.light .bg-emerald-500\/10       { background-color: rgb(209 250 229); }   /* emerald-100 */
+html.light .bg-emerald-500\/15       { background-color: rgb(209 250 229); }
+html.light .text-emerald-100,
+html.light .text-emerald-200,
+html.light .text-emerald-300         { color: rgb(4 120 87); }                 /* emerald-700 */
+html.light .border-emerald-500\/30,
+html.light .border-emerald-500\/40   { border-color: rgb(110 231 183); }       /* emerald-300 */
+
+html.light .bg-amber-500\/10         { background-color: rgb(254 243 199); }   /* amber-100 */
+html.light .text-amber-200,
+html.light .text-amber-300,
+html.light .text-amber-400           { color: rgb(180 83 9); }                 /* amber-700 */
+html.light .border-amber-500\/30,
+html.light .border-amber-500\/40     { border-color: rgb(252 211 77); }        /* amber-300 */
+
+html.light .bg-red-500\/10           { background-color: rgb(254 226 226); }   /* red-100 */
+html.light .text-red-200,
+html.light .text-red-300             { color: rgb(185 28 28); }                /* red-700 */
+html.light .border-red-500\/20,
+html.light .border-red-500\/30,
+html.light .border-red-500\/40       { border-color: rgb(252 165 165); }       /* red-300 */
+html.light .bg-red-900\/30           { background-color: rgb(254 226 226); }
+
+/* Sidebar user button — text-zinc-500 was already remapped to
+   --text-faint (slate-500) which on a near-white sidebar is borderline.
+   Just inside the sidebar we want the secondary line readable, so bump
+   text-zinc-500 within aside.bg-zinc-900 to --text-muted. */
+html.light aside.bg-zinc-900 .text-zinc-500 { color: rgb(var(--text-muted)); }
+
+/* In light mode the sidebar uses the same --card white as the right
+   pane, so visual separation has to come from the divider + a faint
+   inset shadow. The Sidebar root has class `bg-zinc-900 border-r
+   border-zinc-800` which already remaps; this just amplifies the
+   separation. */
+html.light aside.bg-zinc-900 {
+  box-shadow: inset -1px 0 0 0 rgb(var(--border));
+}
+
+/* Cards in light mode want a soft shadow to read as elevated above
+   the page bg. Target the most common card pattern:
+   `rounded-(xl|lg|2xl) border ... bg-zinc-900` containers. We only
+   add the shadow when the element ALSO has a Tailwind rounded utility,
+   so chrome rows / sidebar sections don't get a shadow. */
+html.light .rounded-xl.bg-zinc-900,
+html.light .rounded-xl.bg-zinc-900\/40,
+html.light .rounded-2xl.bg-zinc-900,
+html.light .rounded-lg.bg-zinc-900,
+html.light .rounded-lg.bg-zinc-900\/40 {
+  box-shadow: 0 1px 2px 0 rgb(15 23 42 / 0.04), 0 1px 6px -1px rgb(15 23 42 / 0.04);
+}
+
+/* ---- Remap gaps closed 2026-06-25 -------------------------------------
+   Audited the whole app: the blocks above miss (a) the zinc /50 opacity
+   tier, (b) DARK semantic fills bg-*-900/950 (badges / banners) which go
+   muddy on white, (c) several pale semantic TEXT shades (400 + the colors
+   not yet listed), and (d) dark semantic borders. Same html.light
+   higher-specificity approach — dark mode is untouched. */
+
+/* (a) zinc /50 opacity tier (section header bands, soft cards, hovers) */
+html.light .bg-zinc-950\/50              { background-color: rgb(var(--bg) / 0.6); }
+html.light .bg-zinc-900\/50              { background-color: rgb(var(--card-soft)); }
+html.light .bg-zinc-800\/50              { background-color: rgb(226 232 240 / 0.6); }
+
+/* (b) dark semantic fills -> light tints (bare + common opacity variants) */
+html.light .bg-red-900,
+html.light .bg-red-950,
+html.light .bg-red-900\/40,
+html.light .bg-red-950\/30,
+html.light .bg-red-950\/40               { background-color: rgb(254 226 226); }  /* red-100 */
+html.light .bg-amber-900,
+html.light .bg-amber-950,
+html.light .bg-amber-900\/40             { background-color: rgb(254 243 199); }  /* amber-100 */
+html.light .bg-emerald-900,
+html.light .bg-emerald-950,
+html.light .bg-emerald-900\/40           { background-color: rgb(209 250 229); }  /* emerald-100 */
+html.light .bg-green-900                  { background-color: rgb(220 252 231); }  /* green-100 */
+html.light .bg-sky-900,
+html.light .bg-sky-900\/40               { background-color: rgb(224 242 254); }  /* sky-100 */
+html.light .bg-violet-900,
+html.light .bg-violet-950,
+html.light .bg-violet-900\/40            { background-color: rgb(237 233 254); }  /* violet-100 */
+html.light .bg-indigo-900,
+html.light .bg-indigo-950                { background-color: rgb(224 231 255); }  /* indigo-100 */
+
+/* (c) remaining pale semantic text -> -700 (AA contrast on white) */
+html.light .text-red-400                 { color: rgb(185 28 28); }   /* red-700 */
+html.light .text-emerald-400             { color: rgb(4 120 87); }    /* emerald-700 */
+html.light .text-sky-400                 { color: rgb(3 105 161); }   /* sky-700 */
+html.light .text-violet-200,
+html.light .text-violet-300,
+html.light .text-violet-400              { color: rgb(109 40 217); }  /* violet-700 */
+html.light .text-indigo-400              { color: rgb(67 56 202); }   /* indigo-700 */
+html.light .text-rose-300,
+html.light .text-rose-400                { color: rgb(190 18 60); }   /* rose-700 */
+html.light .text-blue-300,
+html.light .text-blue-400                { color: rgb(29 78 216); }   /* blue-700 */
+html.light .text-cyan-400                { color: rgb(14 116 144); }  /* cyan-700 */
+html.light .text-teal-400                { color: rgb(15 118 110); }  /* teal-700 */
+html.light .text-orange-200,
+html.light .text-orange-300              { color: rgb(194 65 12); }   /* orange-700 */
+html.light .text-green-300               { color: rgb(21 128 61); }   /* green-700 */
+
+/* (d) dark semantic borders -> light tints */
+html.light .border-red-900,
+html.light .border-red-800               { border-color: rgb(254 202 202); }  /* red-200 */
+html.light .border-emerald-900           { border-color: rgb(167 243 208); }  /* emerald-200 */
+html.light .border-indigo-900            { border-color: rgb(199 210 254); }  /* indigo-200 */
+html.light .border-violet-900            { border-color: rgb(221 214 254); }  /* violet-200 */
+
+body {
+  margin: 0;
+  font-family: theme('fontFamily.sans');
+}
+
+/* Sticky glass header. Pages opt in by adding `.app-header` alongside their
+   existing border/padding utility classes. Uses semantic tokens so the
+   header glass background flips automatically when mode toggles. */
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  backdrop-filter: blur(8px);
+  background-color: rgb(var(--bg) / 0.85);
+  border-bottom: 1px solid rgb(var(--border));
+}
+html.light .app-header {
+  /* In light mode use a more opaque background so blurred page content
+     underneath doesn't bleed into the header chrome and make text hard
+     to read. */
+  background-color: rgb(var(--card) / 0.92);
+}
+
+/* Page-level micro-animations. Respect reduced-motion. */
+@keyframes rise {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .anim-rise { animation: rise 240ms ease-out both; }
+  .anim-fade { animation: fade-in 200ms ease-out both; }
+  .anim-scale { animation: scale-in 180ms ease-out both; }
+}
+
+/* Custom scrollbars in dark theme */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(82, 82, 91, 0.4);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(113, 113, 122, 0.6);
+}
+
+/* Focus ring. The dark zinc outline reads as a heavy black frame on the light
+   theme — use a soft slate there instead so keyboard/auto focus stays visible
+   but unobtrusive. */
+*:focus-visible {
+  outline: 2px solid rgb(63, 63, 70);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+html.light *:focus-visible {
+  outline-color: rgb(148 163 184); /* slate-400 — soft, not black */
+}
+/* Text controls already signal focus by darkening their own border
+   (focus:border-…), so the offset focus ring is redundant and reads as a
+   floating outer frame. Drop it on inputs; keep it for buttons/links where the
+   ring is the only focus affordance. */
+/* Form controls show focus via their border, never an outline ring. Must win
+   over both Tailwind's focus:outline-none (which is actually a *transparent*
+   2px outline) and the html.light *:focus-visible recolor above — hence
+   !important, else the recolor turns that transparent outline visible. */
+input:focus,
+input:focus-visible,
+textarea:focus,
+textarea:focus-visible,
+select:focus,
+select:focus-visible {
+  outline: none !important;
+}
+
+/* Markdown body styling within assistant bubbles */
+.md-body {
+  line-height: 1.65;
+  font-size: 14px;
+}
+.md-body p { margin: 0 0 0.6em 0; }
+.md-body p:last-child { margin-bottom: 0; }
+.md-body h1, .md-body h2, .md-body h3 {
+  font-weight: 600;
+  margin: 0.8em 0 0.4em;
+  color: rgb(244, 244, 245);
+}
+html.light .md-body h1,
+html.light .md-body h2,
+html.light .md-body h3 {
+  color: rgb(15, 23, 42);  /* slate-900 — readable on white */
+}
+.md-body h1 { font-size: 1.25rem; }
+.md-body h2 { font-size: 1.1rem; }
+.md-body h3 { font-size: 1rem; }
+.md-body code {
+  background: rgba(63, 63, 70, 0.5);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  font-size: 0.85em;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+.md-body pre {
+  background: rgba(24, 24, 27, 0.9);
+  border: 1px solid rgb(39, 39, 42);
+  padding: 0.8em 1em;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 0.6em 0;
+}
+.md-body pre code {
+  background: transparent;
+  padding: 0;
+}
+/* Light-mode overrides — the dark slate-900 code block looks like a
+   black box on a white page. Use a soft grey background + dark text
+   so the block reads as a quoted block, not an inverted card. */
+html.light .md-body code {
+  background: rgb(241, 245, 249);  /* slate-100 */
+  color: rgb(15, 23, 42);          /* slate-900 */
+}
+html.light .md-body pre {
+  background: rgb(248, 250, 252);  /* slate-50 */
+  border-color: rgb(226, 232, 240); /* slate-200 */
+  color: rgb(15, 23, 42);
+}
+html.light .md-body pre code {
+  background: transparent;
+  color: inherit;
+}
+.md-body ul, .md-body ol {
+  padding-left: 1.4em;
+  margin: 0.4em 0;
+}
+.md-body li { margin: 0.15em 0; }
+.md-body a {
+  color: rgb(96, 165, 250);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.md-body table {
+  border-collapse: collapse;
+  margin: 0.6em 0;
+  font-size: 0.9em;
+}
+.md-body th, .md-body td {
+  border: 1px solid rgb(39, 39, 42);
+  padding: 0.4em 0.7em;
+  text-align: left;
+}
+html.light .md-body th,
+html.light .md-body td {
+  border-color: rgb(226, 232, 240); /* slate-200 */
+}
+.md-body th {
+  background: rgba(39, 39, 42, 0.5);
+  font-weight: 600;
+}
+html.light .md-body th {
+  background: rgb(241, 245, 249);  /* slate-100 */
+}
+
+/* ───────── react-flow dark-mode overrides (/topology) ─────────
+ * The library ships light defaults for Controls / MiniMap that wash
+ * out against our zinc-950 canvas — +/- buttons render white icon on
+ * white bg (invisible) and the MiniMap mask dims to near-black.
+ * Restyle for dark theme. Scoped globally because the Topology page
+ * is the only react-flow consumer today. */
+.react-flow__controls {
+  background: rgb(24, 24, 27); /* zinc-900 */
+  border: 1px solid rgb(63, 63, 70); /* zinc-700 */
+  border-radius: 6px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+.react-flow__controls-button {
+  background: rgb(24, 24, 27) !important;
+  border-bottom: 1px solid rgb(39, 39, 42) !important;
+  color: rgb(228, 228, 231) !important; /* zinc-200 */
+  fill: rgb(228, 228, 231) !important;
+}
+.react-flow__controls-button:last-child {
+  border-bottom: none !important;
+}
+.react-flow__controls-button:hover {
+  background: rgb(39, 39, 42) !important; /* zinc-800 */
+  color: white !important;
+  fill: white !important;
+}
+.react-flow__controls-button svg {
+  fill: currentColor;
+}
+.react-flow__minimap {
+  background: rgb(24, 24, 27) !important; /* zinc-900 — slightly lighter than canvas so the minimap reads as its own surface */
+  border: 1px solid rgb(63, 63, 70); /* zinc-700 */
+  border-radius: 6px;
+}
+/* Mask covers the area OUTSIDE the current viewport. Dim it heavily
+ * so the viewport area pops as "spotlight" instead of being framed by
+ * a solid gray ring. Outline stays bright + thin so the viewport edge
+ * is unambiguous. */
+.react-flow__minimap-mask {
+  fill: rgba(0, 0, 0, 0.55);
+  stroke: rgb(161, 161, 170); /* zinc-400 */
+  stroke-width: 1;
+}
+/* Light-theme overrides — flip Controls + MiniMap to the matching
+ * palette. Without these the dark rules above stay applied and the
+ * controls look like a black panel dropped onto a white page. */
+html.light .react-flow__controls {
+  background: white;
+  border: 1px solid rgb(226, 232, 240); /* slate-200 */
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+html.light .react-flow__controls-button {
+  background: white !important;
+  border-bottom: 1px solid rgb(241, 245, 249) !important; /* slate-100 */
+  color: rgb(51, 65, 85) !important; /* slate-700 */
+  fill: rgb(51, 65, 85) !important;
+}
+html.light .react-flow__controls-button:hover {
+  background: rgb(241, 245, 249) !important;
+  color: rgb(15, 23, 42) !important;
+  fill: rgb(15, 23, 42) !important;
+}
+html.light .react-flow__minimap {
+  background: white !important; /* sits on a near-white canvas; pure white makes the boundary cleaner */
+  border: 1px solid rgb(203, 213, 225); /* slate-300 */
+}
+html.light .react-flow__minimap-mask {
+  fill: rgba(15, 23, 42, 0.18); /* slate-900 at low alpha — dim the non-viewport */
+  stroke: rgb(71, 85, 105); /* slate-600 outline */
+  stroke-width: 1;
+}
+
+/* --- Report PDF export (HLD-014). window.print() isolates the report
+   body into a clean LIGHT document (white page, dark ink) that KEEPS the
+   accent colours — the toned numbers / dots / bars are re-mapped to
+   darker shades so they read on white. --- */
+@media print {
+  /* Hide everything, then reveal only the report content. */
+  body * {
+    visibility: hidden;
+  }
+  .report-print-area,
+  .report-print-area * {
+    visibility: visible;
+  }
+  .report-print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: auto !important;
+    overflow: visible !important;
+  }
+  html,
+  body,
+  .report-print-area {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    background: #ffffff !important;
+  }
+  /* Light theme: white surfaces, dark ink, light borders. The blanket
+     resets card fills + text to a printable baseline; the accent
+     overrides below win on specificity. */
+  .report-print-area * {
+    overflow: visible !important;
+    color: #18181b !important; /* zinc-900 ink */
+    background-color: transparent !important;
+    border-color: #e4e4e7 !important; /* zinc-200 */
+  }
+  .report-print-area .text-zinc-500,
+  .report-print-area .text-zinc-600 {
+    color: #71717a !important; /* keep secondary text grey, not black */
+  }
+  /* Accent numbers — darker shades for contrast on white. */
+  .report-print-area .text-indigo-400 { color: #4f46e5 !important; }
+  .report-print-area .text-rose-400 { color: #e11d48 !important; }
+  .report-print-area .text-violet-400 { color: #7c3aed !important; }
+  .report-print-area .text-cyan-400 { color: #0891b2 !important; }
+  .report-print-area .text-indigo-300 { color: #4f46e5 !important; }
+  /* Accent dots / utilisation bars / severity dots keep their fill. */
+  .report-print-area .bg-indigo-400 { background-color: #6366f1 !important; }
+  .report-print-area .bg-rose-400 { background-color: #f43f5e !important; }
+  .report-print-area .bg-violet-400 { background-color: #8b5cf6 !important; }
+  .report-print-area .bg-cyan-400 { background-color: #06b6d4 !important; }
+  .report-print-area .bg-red-400, .report-print-area .bg-red-500 { background-color: #ef4444 !important; }
+  .report-print-area .bg-amber-400, .report-print-area .bg-amber-500 { background-color: #f59e0b !important; }
+  .report-print-area .bg-sky-500 { background-color: #0ea5e9 !important; }
+  /* The thin progress-bar track stays a light grey so the fill shows. */
+  .report-print-area .bg-zinc-800 { background-color: #e4e4e7 !important; }
+  /* Keep a stat row / card from splitting across a page break. */
+  .report-print-area section,
+  .report-print-area .rounded-xl,
+  .report-print-area .rounded-lg {
+    break-inside: avoid;
+  }
+  @page {
+    margin: 12mm;
+  }
+}

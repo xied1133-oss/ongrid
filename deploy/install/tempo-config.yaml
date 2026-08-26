@@ -1,0 +1,76 @@
+# Tempo single-binary config for ongrid (ADR-013).
+# Filesystem backend; default 7d retention via compactor; spanmetrics +
+# service-graph generators remote_write to Prometheus so trace_latency /
+# trace_error_rate evaluators reuse the existing Prom query path.
+
+server:
+  http_listen_port: 3200
+  grpc_listen_port: 9095
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+ingester:
+  trace_idle_period: 10s
+  max_block_duration: 5m
+
+compactor:
+  compaction:
+    block_retention: 168h            # 7 days (ADR-013 §决策第 4 条)
+    compacted_block_retention: 1h
+    compaction_window: 1h
+    max_block_bytes: 100_000_000     # ~100 MB blocks
+
+# Spanmetrics + service-graph generators emit Prom metrics that the manager
+# evaluator reuses (trace_latency / trace_error_rate; ADR-013 §正面). The
+# remote_write target is the docker-internal Prom which has
+# --web.enable-remote-write-receiver enabled per ADR-009.
+metrics_generator:
+  registry:
+    external_labels:
+      source: tempo
+  storage:
+    path: /var/tempo/generator/wal
+    remote_write:
+      - url: http://prometheus:9090/prometheus/api/v1/write
+        send_exemplars: true
+  processor:
+    span_metrics:
+      dimensions:
+        - service.name
+        - span.kind
+        - status.code
+    service_graphs:
+      max_items: 10000
+
+storage:
+  trace:
+    backend: local
+    local:
+      path: /var/tempo/blocks
+    wal:
+      path: /var/tempo/wal
+    pool:
+      max_workers: 100
+      queue_depth: 10000
+
+overrides:
+  defaults:
+    metrics_generator:
+      processors:
+        - service-graphs
+        - span-metrics
+    ingestion:
+      rate_limit_bytes: 20_000_000     # 20 MB/s per tenant
+      burst_size_bytes: 30_000_000
+    global:
+      max_bytes_per_trace: 50_000_000  # 50 MB cap per trace
+
+usage_report:
+  reporting_enabled: false

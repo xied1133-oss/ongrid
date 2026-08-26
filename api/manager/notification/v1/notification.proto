@@ -1,0 +1,90 @@
+syntax = "proto3";
+
+package ongrid.manager.notification.v1;
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/singchia/ongrid/api/gen/manager/notification/v1;notificationv1";
+
+service NotificationService {
+    rpc ListChannels(ListChannelsRequest) returns (ListChannelsResponse);
+    rpc GetChannel(GetChannelRequest) returns (GetChannelResponse);
+    rpc CreateChannel(CreateChannelRequest) returns (CreateChannelResponse);
+    rpc UpdateChannel(UpdateChannelRequest) returns (UpdateChannelResponse);
+    rpc DeleteChannel(DeleteChannelRequest) returns (google.protobuf.Empty);
+    rpc TestChannel(TestChannelRequest) returns (TestChannelResponse);
+}
+
+enum NotificationChannelType {
+    NOTIFICATION_CHANNEL_TYPE_UNSPECIFIED = 0;
+    NOTIFICATION_CHANNEL_TYPE_WEBHOOK = 1;
+    NOTIFICATION_CHANNEL_TYPE_SLACK = 2;
+    NOTIFICATION_CHANNEL_TYPE_FEISHU = 3;
+    NOTIFICATION_CHANNEL_TYPE_DINGTALK = 4;
+}
+
+message NotificationChannel {
+    uint64 id = 1 [json_name = "id"];
+    string name = 2 [json_name = "name"];
+    NotificationChannelType type = 3 [json_name = "type"];
+    bool enabled = 4 [json_name = "enabled"];
+    string endpoint_masked = 5 [json_name = "endpoint_masked"];
+    google.protobuf.Timestamp created_at = 6 [json_name = "created_at"];
+    google.protobuf.Timestamp updated_at = 7 [json_name = "updated_at"];
+}
+
+message ListChannelsRequest {
+    int32 page = 1 [json_name = "page"];
+    int32 page_size = 2 [json_name = "page_size"];
+}
+
+message ListChannelsResponse {
+    repeated NotificationChannel channels = 1 [json_name = "channels"];
+    int32 total = 2 [json_name = "total"];
+    int32 page = 3 [json_name = "page"];
+    int32 page_size = 4 [json_name = "page_size"];
+}
+
+message GetChannelRequest {
+    uint64 id = 1 [json_name = "id"];
+}
+
+message GetChannelResponse {
+    NotificationChannel channel = 1 [json_name = "channel"];
+}
+
+message CreateChannelRequest {
+    string name = 1 [json_name = "name"];
+    NotificationChannelType type = 2 [json_name = "type"];
+    string endpoint = 3 [json_name = "endpoint"];
+    bool enabled = 4 [json_name = "enabled"];
+}
+
+message CreateChannelResponse {
+    NotificationChannel channel = 1 [json_name = "channel"];
+}
+
+message UpdateChannelRequest {
+    uint64 id = 1 [json_name = "id"];
+    string name = 2 [json_name = "name"];
+    string endpoint = 3 [json_name = "endpoint"];
+    bool enabled = 4 [json_name = "enabled"];
+}
+
+message UpdateChannelResponse {
+    NotificationChannel channel = 1 [json_name = "channel"];
+}
+
+message DeleteChannelRequest {
+    uint64 id = 1 [json_name = "id"];
+}
+
+message TestChannelRequest {
+    uint64 id = 1 [json_name = "id"];
+}
+
+message TestChannelResponse {
+    bool accepted = 1 [json_name = "accepted"];
+    string message = 2 [json_name = "message"];
+}

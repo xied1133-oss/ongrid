@@ -1,0 +1,527 @@
+# ongrid production docker-compose — shipped inside the release tarball.
+# Do NOT add a top-level `version:` key (modern compose).
+#
+# Operator flow:
+#   1. scp ongrid-<ver>.tar.xz vps:~/
+#   2. ssh vps 'tar xf ongrid-*.tar.xz && cd ongrid-* && sudo ./install.sh'
+#
+# install.sh copies this file + frontier.yaml + prometheus.yml + edge/ to
+# /opt/ongrid, renders .env, pulls all runtime images from CNB, and brings
+# the stack up.
+#
+# Differences vs deploy/docker-compose.yml (which is for local dev):
+#   - ongrid and Web images are pulled from the versioned CNB repositories.
+#   - MySQL port 3306 is NOT published to host (container-network only).
+#   - All secrets come from .env (no hard-coded defaults for passwords).
+#   - prometheus is a core service (ADR-009): it receives remote_write
+#     pushes from manager and powers the AI agent's query_promql tool.
+#     Not published to host; manager reaches it via http://prometheus:9090/prometheus.
+
+services:
+  mysql:
+    image: docker.cnb.cool/ongridio/ongrid/mysql:8.0
+    container_name: ongrid-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required in .env}
+      MYSQL_DATABASE: ongrid
+      MYSQL_USER: ongrid
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required in .env}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      # Bind-mount to host so operators can back up / replace / inspect the
+      # data without `docker run --rm -v <named-vol>:/data` gymnastics, and
+      # so storage can be pointed at a customer-managed filesystem (NFS,
+      # iSCSI, NVMe) by overriding ONGRID_DATA_DIR. install.sh chowns this
+      # to mysql uid 999.
+      - ${ONGRID_DATA_DIR:-/var/lib/ongrid}/mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -u root -p$${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+        max-file: "5"
+
+  ongrid:
+    image: docker.cnb.cool/ongridio/ongrid:${ONGRID_VERSION}
+    container_name: ongrid
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      ONGRID_HTTP_ADDR: ${ONGRID_HTTP_ADDR:-:8080}
+      ONGRID_METRICS_ADDR: ${ONGRID_METRICS_ADDR:-:9100}
+      # Frontier broker (upstream singchia/frontier). Manager dials the
+      # service-bound port over the docker network; never exposed to host.
+      ONGRID_FRONTIER_ADDR: ${ONGRID_FRONTIER_ADDR:-frontier:40011}
+      ONGRID_FRONTIER_SERVICE_NAME: ${ONGRID_FRONTIER_SERVICE_NAME:-ongrid-manager}
+      ONGRID_DB_DIALECT: mysql
+      ONGRID_DB_DSN: ongrid:${MYSQL_PASSWORD}@tcp(mysql:3306)/ongrid?parseTime=true&charset=utf8mb4&loc=Local
+      ONGRID_JWT_SECRET: ${ONGRID_JWT_SECRET:?ONGRID_JWT_SECRET is required in .env}
+      # HLD-017 credential vault at-rest key (AES-256-GCM). Lives in .env
+      # (outside the DB) so a DB dump alone yields no plaintext credentials.
+      # Unset → an insecure built-in key + a boot warning; set 32+ random chars.
+      ONGRID_SECRET_KEY: ${ONGRID_SECRET_KEY:-}
+      ONGRID_JWT_ACCESS_TTL: ${ONGRID_JWT_ACCESS_TTL:-15m}
+      ONGRID_JWT_REFRESH_TTL: ${ONGRID_JWT_REFRESH_TTL:-720h}
+      ONGRID_ADMIN_EMAIL: ${ONGRID_ADMIN_EMAIL:-}
+      ONGRID_ADMIN_PASSWORD: ${ONGRID_ADMIN_PASSWORD:-}
+      ONGRID_OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # Model defaults intentionally NOT hard-coded here — the Go side
+      # (cmd/ongrid/main.go firstNonEmpty fallbacks) owns the current
+      # defaults so a single code edit keeps the seed list, the env
+      # resolver defaults, and what gets pushed into compose all in sync.
+      # Hard-coding here is how gpt-4o + claude-3-5-sonnet + glm-4-plus +
+      # gemini-1.5-pro + deepseek-chat + moonshot-v1-8k leaked back into
+      # fresh installs after the v0.7.155/156 default refresh.
+      ONGRID_OPENAI_MODEL: ${OPENAI_MODEL:-}
+      ONGRID_OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      # Other LLM providers — operators set whichever they have a key
+      # for. Default provider picks which one chat dispatches to.
+      ONGRID_ZHIPU_API_KEY: ${ONGRID_ZHIPU_API_KEY:-}
+      ONGRID_ZHIPU_MODEL: ${ONGRID_ZHIPU_MODEL:-}
+      ONGRID_ZHIPU_BASE_URL: ${ONGRID_ZHIPU_BASE_URL:-}
+      ONGRID_ANTHROPIC_API_KEY: ${ONGRID_ANTHROPIC_API_KEY:-}
+      ONGRID_ANTHROPIC_MODEL: ${ONGRID_ANTHROPIC_MODEL:-}
+      ONGRID_ANTHROPIC_BASE_URL: ${ONGRID_ANTHROPIC_BASE_URL:-}
+      ONGRID_GEMINI_API_KEY: ${ONGRID_GEMINI_API_KEY:-}
+      ONGRID_GEMINI_MODEL: ${ONGRID_GEMINI_MODEL:-}
+      ONGRID_DEEPSEEK_API_KEY: ${ONGRID_DEEPSEEK_API_KEY:-}
+      ONGRID_DEEPSEEK_MODEL: ${ONGRID_DEEPSEEK_MODEL:-}
+      ONGRID_KIMI_API_KEY: ${ONGRID_KIMI_API_KEY:-}
+      ONGRID_KIMI_MODEL: ${ONGRID_KIMI_MODEL:-}
+      ONGRID_LLM_DEFAULT_PROVIDER: ${ONGRID_LLM_DEFAULT_PROVIDER:-}
+      # Auto root-cause analysis (HLD-011). When true + an LLM is
+      # configured, every incident at/above ONGRID_INVESTIGATOR_MIN_SEVERITY
+      # spawns a structured-report RCA worker (the "根因分析" panel on the
+      # incident page). Default true so it works out of the box; set false
+      # to suppress the per-incident LLM spend. The summarizer auto-uses the
+      # default chat provider's model — no separate model config needed.
+      ONGRID_INVESTIGATOR_ENABLED: ${ONGRID_INVESTIGATOR_ENABLED:-true}
+      ONGRID_INVESTIGATOR_MIN_SEVERITY: ${ONGRID_INVESTIGATOR_MIN_SEVERITY:-warning}
+      # AIOps agent kernel. "graph" enables the eino graph kernel +
+      # SkillRegistry.Resolve activation-keyword filter (skills with
+      # activation:keyword stay out of the prompt unless the user query
+      # mentions a keyword) + ToolBag deferral pipeline. "legacy" =
+      # historical for-loop runner with all tools always full-schema.
+      # Default flipped to graph 2026-05-08; flip to legacy to bisect.
+      ONGRID_AGENT_KERNEL: ${ONGRID_AGENT_KERNEL:-graph}
+      # ToolBag deferral threshold. When tool count > this, specialty-tier
+      # tools get redacted schemas (LLM must call ToolSearch to expand).
+      # Default 30 is fine until marketplace grows the bag past it.
+      ONGRID_TOOLBAG_DEFERRAL_THRESHOLD: ${ONGRID_TOOLBAG_DEFERRAL_THRESHOLD:-30}
+      # Knowledge base / RAG: qdrant vector store + embedding provider.
+      # ONGRID_QDRANT_URL is the qdrant HTTP endpoint (in-cluster, no
+      # external port). ONGRID_EMBEDDING_PROVIDER picks the embedding
+      # model: empty = "openai" path using ONGRID_OPENAI_API_KEY +
+      # base_url (works for OpenAI, GLM, Qwen — anyone speaking the
+      # OpenAI /embeddings shape). The embedding model defaults to a
+      # 1024-dim model; ONGRID_EMBEDDING_DIM keeps the qdrant collection
+      # in sync if you switch.
+      ONGRID_QDRANT_URL: ${ONGRID_QDRANT_URL:-http://qdrant:6333}
+      ONGRID_EMBEDDING_PROVIDER: ${ONGRID_EMBEDDING_PROVIDER:-openai}
+      ONGRID_EMBEDDING_MODEL: ${ONGRID_EMBEDDING_MODEL:-text-embedding-3-small}
+      ONGRID_EMBEDDING_DIM: ${ONGRID_EMBEDDING_DIM:-1536}
+      ONGRID_EMBEDDING_BASE_URL: ${ONGRID_EMBEDDING_BASE_URL:-}
+      ONGRID_EMBEDDING_API_KEY: ${ONGRID_EMBEDDING_API_KEY:-}
+      # Local ONNX embedder (ADR-027 Phase-2 offline RAG). When
+      # PROVIDER=local, manager loads BGE-small-zh-v1.5 ONNX from this
+      # dir; the install bundle pre-stages it so air-gapped operators
+      # don't need HF reach.
+      ONGRID_EMBEDDING_CACHE_DIR: ${ONGRID_EMBEDDING_CACHE_DIR:-/var/lib/ongrid/embeddings}
+      ONNX_PATH: /usr/lib/libonnxruntime.so
+      # OTel tracing — Tempo OTLP HTTP receiver (HLD-004 Phase-B trace
+      # evaluators need real spans for traces_spanmetrics_* to populate).
+      ONGRID_OTEL_ENDPOINT: ${ONGRID_OTEL_ENDPOINT:-tempo:4318}
+      # ADR-009: cloud-side Prometheus. Manager remote_writes open-set
+      # samples here and the aiops query_promql tool reads from it.
+      ONGRID_PROM_ENABLED: ${ONGRID_PROM_ENABLED:-true}
+      ONGRID_PROM_URL: ${ONGRID_PROM_URL:-http://prometheus:9090/prometheus}
+      ONGRID_PROM_REMOTE_WRITE_URL: ${ONGRID_PROM_REMOTE_WRITE_URL:-}
+      ONGRID_PROM_QUERY_URL: ${ONGRID_PROM_QUERY_URL:-http://prometheus:9090/prometheus}
+      ONGRID_PROM_TLS_INSECURE: ${ONGRID_PROM_TLS_INSECURE:-false}
+      ONGRID_PROM_TLS_CA_FILE: ${ONGRID_PROM_TLS_CA_FILE:-}
+      # Public URL the manager hands out to edges as the data-plane
+      # endpoint for plugin telemetry (ADR-014 / ADR-015). Empty disables
+      # plugin endpoints — edges can't push logs/traces. install.sh
+      # populates from operator's domain at first run.
+      ONGRID_PUBLIC_URL: ${ONGRID_PUBLIC_URL:-}
+      ONGRID_TUNNEL_ADDR: ${ONGRID_TUNNEL_ADDR:-}
+      # Private native PCAP parser. Docker-only HTTP is protected by the
+      # signed request and single-use artifact capability below; the parser
+      # source never enters this image.
+      ONGRID_PACKET_PARSER_URL: http://pcap-parser:8080
+      ONGRID_PACKET_PARSER_ARTIFACT_BASE_URL: http://nginx:8081
+      ONGRID_PACKET_PARSER_TOKEN_SECRET: ${ONGRID_PACKET_PARSER_TOKEN_SECRET:?ONGRID_PACKET_PARSER_TOKEN_SECRET is required in .env}
+      ONGRID_PACKET_PARSER_MANAGER_PRIVATE_KEY_FILE: /var/lib/ongrid/pcap-parser/request.key
+      ONGRID_K8S_EVENT_RETENTION: ${ONGRID_K8S_EVENT_RETENTION:-24h}
+      ONGRID_K8S_EVENT_MAX_PER_CLUSTER: ${ONGRID_K8S_EVENT_MAX_PER_CLUSTER:-5000}
+      ONGRID_K8S_EVENT_CLEANUP_INTERVAL: ${ONGRID_K8S_EVENT_CLEANUP_INTERVAL:-1h}
+      # Grafana first-boot seed: manager uses this URL to call Grafana
+      # over the docker network. Admin overrides it in the UI for an
+      # external Grafana. The /grafana sub-path matches GF_SERVER_SERVE_FROM_SUB_PATH.
+      ONGRID_GRAFANA_INTERNAL_URL: ${ONGRID_GRAFANA_INTERNAL_URL:-http://grafana:3000/grafana}
+      # Admin creds for one-shot bootstrap of the embedded SA token.
+      # Empty BOOTSTRAP_PASSWORD = bootstrap disabled (operator pointing
+      # at a customer-supplied external Grafana).
+      ONGRID_GRAFANA_BOOTSTRAP_USER: ${GRAFANA_ADMIN_USER:-admin}
+      ONGRID_GRAFANA_BOOTSTRAP_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-}
+      # Skip cert verify when calling Grafana — needed when admin points
+      # at an external Grafana behind a self-signed cert. Internal mode
+      # (http://grafana:3000/grafana) doesn't use TLS so the value is moot.
+      ONGRID_GRAFANA_TLS_INSECURE: ${ONGRID_GRAFANA_TLS_INSECURE:-false}
+      # Built-in host alert thresholds over push_host_metrics.
+      ONGRID_ALERT_ENABLED: ${ONGRID_ALERT_ENABLED:-true}
+      ONGRID_ALERT_COOLDOWN: ${ONGRID_ALERT_COOLDOWN:-10m}
+      # How often the pipeline evaluator re-runs every enabled rule.
+      # Empty = Go-side default (5m as of 2026-05-31; was 30s — too
+      # noisy on long-firing rules, an always-true rule racked up
+      # ~3900 alert_events in 32 h). Drop to 30s only for chasing
+      # latency-sensitive rules. Notification cadence is separately
+      # bounded by ONGRID_ALERT_COOLDOWN above.
+      ONGRID_ALERT_EVAL_INTERVAL: ${ONGRID_ALERT_EVAL_INTERVAL:-}
+      ONGRID_ALERT_CPU_PERCENT: ${ONGRID_ALERT_CPU_PERCENT:-90}
+      ONGRID_ALERT_MEM_PERCENT: ${ONGRID_ALERT_MEM_PERCENT:-90}
+      ONGRID_ALERT_DISK_USED_PERCENT: ${ONGRID_ALERT_DISK_USED_PERCENT:-90}
+      ONGRID_ALERT_LOAD1: ${ONGRID_ALERT_LOAD1:-0}
+      # Outbound notifications for alerts / scheduled jobs / proactive AIOps.
+      ONGRID_NOTIFY_ENABLED: ${ONGRID_NOTIFY_ENABLED:-false}
+      ONGRID_NOTIFY_DEFAULT_CHANNELS: ${ONGRID_NOTIFY_DEFAULT_CHANNELS:-log}
+      ONGRID_NOTIFY_TIMEOUT: ${ONGRID_NOTIFY_TIMEOUT:-10s}
+      ONGRID_NOTIFY_LOG_ENABLED: ${ONGRID_NOTIFY_LOG_ENABLED:-true}
+      ONGRID_NOTIFY_LOG_NAME: ${ONGRID_NOTIFY_LOG_NAME:-log}
+      ONGRID_NOTIFY_WEBHOOK_ENABLED: ${ONGRID_NOTIFY_WEBHOOK_ENABLED:-false}
+      ONGRID_NOTIFY_WEBHOOK_NAME: ${ONGRID_NOTIFY_WEBHOOK_NAME:-webhook}
+      ONGRID_NOTIFY_WEBHOOK_URL: ${ONGRID_NOTIFY_WEBHOOK_URL:-}
+      ONGRID_NOTIFY_WEBHOOK_SECRET: ${ONGRID_NOTIFY_WEBHOOK_SECRET:-}
+      ONGRID_NOTIFY_SLACK_ENABLED: ${ONGRID_NOTIFY_SLACK_ENABLED:-false}
+      ONGRID_NOTIFY_SLACK_NAME: ${ONGRID_NOTIFY_SLACK_NAME:-slack}
+      ONGRID_NOTIFY_SLACK_WEBHOOK_URL: ${ONGRID_NOTIFY_SLACK_WEBHOOK_URL:-}
+      ONGRID_NOTIFY_FEISHU_ENABLED: ${ONGRID_NOTIFY_FEISHU_ENABLED:-false}
+      ONGRID_NOTIFY_FEISHU_NAME: ${ONGRID_NOTIFY_FEISHU_NAME:-feishu}
+      ONGRID_NOTIFY_FEISHU_WEBHOOK_URL: ${ONGRID_NOTIFY_FEISHU_WEBHOOK_URL:-}
+      ONGRID_NOTIFY_FEISHU_SECRET: ${ONGRID_NOTIFY_FEISHU_SECRET:-}
+      ONGRID_NOTIFY_DINGTALK_ENABLED: ${ONGRID_NOTIFY_DINGTALK_ENABLED:-false}
+      ONGRID_NOTIFY_DINGTALK_NAME: ${ONGRID_NOTIFY_DINGTALK_NAME:-dingtalk}
+      ONGRID_NOTIFY_DINGTALK_WEBHOOK_URL: ${ONGRID_NOTIFY_DINGTALK_WEBHOOK_URL:-}
+      ONGRID_NOTIFY_DINGTALK_SECRET: ${ONGRID_NOTIFY_DINGTALK_SECRET:-}
+    # ADR-008: HTTP API (8080) is no longer published to host — only the
+    # nginx service (in this same compose network) talks to it. Metrics
+    # port stays exposed so the host's Prometheus can scrape it.
+    ports:
+      - "${ONGRID_METRICS_PORT:-9100}:9100"
+    volumes:
+      # Manager process logs (slog json output). Bind-mounted so operators
+      # can `tail -f /var/log/ongrid/*.log` directly without docker exec
+      # and so log shipping (OpenTelemetry Collector / Vector / Fluent Bit) can scrape
+      # from the host without needing the docker socket. Override
+      # ONGRID_LOG_DIR to point at a separate log filesystem.
+      - ${ONGRID_LOG_DIR:-/var/log/ongrid}:/var/log/ongrid
+      # ADR-024: manager reads <bundle>.sha256 to resolve one-button
+      # edge upgrades. Bind-mount the host's /opt/ongrid/edge dir
+      # (same dir nginx serves at /edge/) read-only so the resolver
+      # can pick up new bundles dropped by install.sh / upgrade.sh.
+      - ./edge:/usr/share/ongrid/edge-bundles:ro
+      # ADR-027 Phase-2: local ONNX embedding model cache. install.sh
+      # stages the bundled bge-small-zh-v1.5 here on first install;
+      # operator can also drop other fastembed models in by mkdir +
+      # cp + setting ONGRID_EMBEDDING_MODEL. Read-write because
+      # fastembed-go writes its own download-progress lock files.
+      - ${ONGRID_DATA_DIR:-/var/lib/ongrid}/embeddings:/var/lib/ongrid/embeddings
+      # HLD-017 cloud skill marketplace: user-installed skills land in
+      # ONGRID_SKILLS_ROOT (=/var/lib/ongrid/skills in-container). MUST be a
+      # host bind-mount — otherwise installed skills live only in the
+      # container layer and are wiped on every `compose up` / image upgrade
+      # (the installed_skills DB row would survive in mysql and dangle).
+      - ${ONGRID_DATA_DIR:-/var/lib/ongrid}/skills:/var/lib/ongrid/skills
+      # HLD-019 agent workspace: per-session persistent cwd for cloud_bash
+      # (terraform .tf/state, scratch files). Same bind-mount rationale as
+      # skills — must survive image upgrades / `compose up`, else a tool's
+      # files written in one command vanish before the next.
+      - ${ONGRID_DATA_DIR:-/var/lib/ongrid}/workspace:/var/lib/ongrid/workspace
+      # cloud_bash runtime tools (cloudBashToolsDir = /var/lib/ongrid/tools):
+      # PYTHONUSERBASE + PATH for runtime-installed CLIs (tccli, awscli, …) and
+      # their bin entrypoints. WITHOUT this mount the manager container can't see
+      # the host-installed tools, so `tccli` etc. fail with "not found" and the
+      # agent wastes turns pip-installing or hand-rolling API calls. Host
+      # bind-mount so tools survive container recreation / image upgrades and
+      # don't bloat the image.
+      - ${ONGRID_DATA_DIR:-/var/lib/ongrid}/tools:/var/lib/ongrid/tools
+      # serve_page hosted reports — must survive `compose up` / image upgrades,
+      # else a generated page 404s the moment the manager container is
+      # recreated and its "open generated page" link goes dead.
+      - ${ONGRID_DATA_DIR:-/var/lib/ongrid}/pages:/var/lib/ongrid/pages
+      # Packet capture raw PCAP objects. Manager stores the raw bytes here after
+      # reading them back from the Edge, then serves authenticated downloads and
+      # private parser fetches from the same durable path.
+      - ${ONGRID_DATA_DIR:-/var/lib/ongrid}/packet-captures:/var/lib/ongrid/packet-captures
+      - ${ONGRID_DATA_DIR:-/var/lib/ongrid}/pcap-parser/manager:/var/lib/ongrid/pcap-parser:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+        max-file: "5"
+
+  frontier:
+    # Upstream broker mirrored to the project CNB registry. The pinned tag is
+    # bumped together with Makefile var FRONTIER_VERSION.
+    image: docker.cnb.cool/ongridio/ongrid/frontier:v1.2.4
+    container_name: ongrid-frontier
+    restart: unless-stopped
+    volumes:
+      - ./frontier.yaml:/usr/conf/frontier.yaml:ro
+    ports:
+      # Edge-bound port (40012) is published as the public tunnel port so
+      # operators see no change in the edge-side endpoint. Service-bound
+      # (40011) is intentionally NOT published — manager reaches it via
+      # the docker network as `frontier:40011`.
+      - "${ONGRID_TUNNEL_PORT:-40012}:40012"
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+        max-file: "5"
+
+  # ADR-008: TLS termination + frontend SPA + /api reverse proxy.
+  # Image bakes web/dist/ in; nginx.conf and certs/ are bind-mounted so
+  # operators can edit them without rebuilding the image.
+  nginx:
+    image: docker.cnb.cool/ongridio/ongrid/ongrid-web:${ONGRID_VERSION}
+    container_name: ongrid-nginx
+    restart: unless-stopped
+    depends_on:
+      ongrid:
+        condition: service_started
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+      # Public edge artifact dir: install.sh + cross-arch binaries served
+      # at https://<host>/install.sh and /edge/<file>.
+      - ./edge:/usr/share/nginx/html/edge:ro
+    ports:
+      - "${ONGRID_HTTP_PORT:-443}:443"
+      - "${ONGRID_HTTP_REDIRECT_PORT:-80}:80"
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+        max-file: "5"
+
+  # Native Wireshark packet dissector. This service has no `ports` mapping:
+  # only Compose peers can reach its signed HTTP/gRPC listeners.
+  pcap-parser:
+    image: ${ONGRID_PCAP_PARSER_IMAGE:-docker.cnb.cool/ongridio/pcap-parser:v0.12.0@sha256:5b117be302e61cfa1a964ac8649580185cb41868369471001c10d372ac4e9b5a}
+    container_name: ongrid-pcap-parser
+    restart: unless-stopped
+    environment:
+      PCAP_PARSER_MANAGER_PUBLIC_KEY_FILE: /run/pcap-parser/request.pub
+      PCAP_PARSER_ARTIFACT_HOSTS: nginx
+      PCAP_PARSER_ALLOW_HTTP_ARTIFACTS: "true"
+    volumes:
+      - ${ONGRID_DATA_DIR:-/var/lib/ongrid}/pcap-parser/parser:/run/pcap-parser:ro
+    expose:
+      - "8080"
+      - "9090"
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+        max-file: "5"
+
+  # ADR-009: cloud-side Prometheus. Core service (no longer profile-gated).
+  # Receives remote_write pushes from the manager (open-set edge samples
+  # via push_prom_samples) and serves PromQL to the aiops query_promql
+  # tool. Not published to host — manager reaches it on the docker network
+  # at http://prometheus:9090/prometheus. Retention: 90d / 20GB cap.
+  prometheus:
+    image: docker.cnb.cool/ongridio/ongrid/prometheus:v2.54.0
+    container_name: ongrid-prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=90d
+      - --storage.tsdb.retention.size=20GB
+      - --web.enable-remote-write-receiver
+      - --web.enable-lifecycle
+      - --web.external-url=/prometheus/
+      - --web.route-prefix=/prometheus/
+    # Phase-A unblock for missing host metrics: let prometheus.yml's
+    # node-exporter-host job reach the host's node_exporter on Linux too.
+    # `${ONGRID_HOST_GATEWAY:-host-gateway}` uses Docker's special value on
+    # modern engines; install.sh / upgrade.sh backfill a bridge IP on older
+    # engines that reject the special value. Phase-B (edge metrics plugin tunnel-RPC push)
+    # will eventually obviate this static job, but the entry stays
+    # harmless when no node_exporter is listening (Prom marks the target
+    # DOWN and continues).
+    extra_hosts:
+      - "host.docker.internal:${ONGRID_HOST_GATEWAY:-host-gateway}"
+    volumes:
+      # Bind-mount TSDB to host. Prometheus runs as nobody (uid 65534) so
+      # install.sh chowns this dir accordingly. Move to a fast SSD or
+      # set ONGRID_DATA_DIR to a dedicated metrics filesystem.
+      - ${ONGRID_DATA_DIR:-/var/lib/ongrid}/prometheus:/prometheus
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # ADR-026 self-obs alert rules. Sibling file referenced from
+      # prometheus.yml under rule_files. Edit + curl /prometheus/-/reload
+      # to apply without restart.
+      - ./prometheus-rules.yml:/etc/prometheus/rules.yml:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+        max-file: "5"
+
+  # Loki (ADR-012). Single-binary log backend, only docker-internal port
+  # 3100 — public access flows through nginx /loki/api/v1/push with
+  # auth_request → manager edgeauth (ADR-014 §决策).
+  loki:
+    image: docker.cnb.cool/ongridio/ongrid/loki:3.4.0
+    container_name: ongrid-loki
+    restart: unless-stopped
+    command:
+      - -config.file=/etc/loki/local-config.yaml
+    volumes:
+      # Loki TSDB / chunks on host. Loki runs as uid 10001; chowned by
+      # install.sh. For production externalisation, point ONGRID_LOG_URL
+      # at a managed Loki / Grafana Cloud Logs and stop this container.
+      - ${ONGRID_DATA_DIR:-/var/lib/ongrid}/loki:/loki
+      - ./loki-config.yaml:/etc/loki/local-config.yaml:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+        max-file: "5"
+
+  # Tempo (ADR-013). Single-binary trace backend; OTLP gRPC :4317 and HTTP
+  # :4318 (and Tempo HTTP query :3200) are intentionally NOT published to
+  # host. Edges push to nginx /v1/traces with auth_request → manager
+  # edgeauth (ADR-014 §决策第 1 条); manager Go is NOT on this byte stream.
+  tempo:
+    image: docker.cnb.cool/ongridio/ongrid/tempo:2.10.0
+    container_name: ongrid-tempo
+    restart: unless-stopped
+    command:
+      - -config.file=/etc/tempo/tempo.yaml
+    volumes:
+      # Tempo blocks on host. Tempo runs as uid 10001 (same as Loki);
+      # chowned by install.sh. For production externalisation, point
+      # ONGRID_TRACE_QUERY_URL at a managed Tempo / Grafana Cloud Traces.
+      - ${ONGRID_DATA_DIR:-/var/lib/ongrid}/tempo:/var/tempo
+      - ./tempo-config.yaml:/etc/tempo/tempo.yaml:ro
+    depends_on:
+      - prometheus
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+        max-file: "5"
+
+  # qdrant — vector store for the knowledge base / RAG. One container,
+  # HTTP API only (port 6333). Persistent volume keeps collections
+  # across restarts. Manager reaches it at http://qdrant:6333; no
+  # external port (knowledge-base writes / queries all go through the
+  # manager API).
+  qdrant:
+    image: docker.cnb.cool/ongridio/ongrid/qdrant:v1.11.3
+    container_name: ongrid-qdrant
+    restart: unless-stopped
+    volumes:
+      # Qdrant collections on host. Container runs as root so no chown
+      # needed. For production externalisation, point ONGRID_QDRANT_URL
+      # at a managed qdrant cluster (e.g. qdrant cloud).
+      - ${ONGRID_DATA_DIR:-/var/lib/ongrid}/qdrant:/qdrant/storage
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+        max-file: "5"
+
+  # SearXNG (default backend for the manager-scoped web_search skill).
+  # Self-hosted meta-search aggregator — fans out queries to Bing /
+  # DuckDuckGo / Brave / Baidu / Sogou and returns normalised JSON.
+  # Zero API key, zero quota. Only docker-internal port 8080 — manager
+  # reaches it at http://searxng:8080/search?q=...&format=json. The
+  # JSON-format API is enabled in settings.yml; SearXNG's secret_key
+  # is hard-coded since the service is not exposed publicly.
+  searxng:
+    image: docker.cnb.cool/ongridio/ongrid/searxng:latest
+    container_name: ongrid-searxng
+    restart: unless-stopped
+    environment:
+      SEARXNG_BASE_URL: http://searxng:8080/
+      INSTANCE_NAME: ongrid-search
+    volumes:
+      - ./searxng:/etc/searxng:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+        max-file: "5"
+
+  grafana:
+    image: docker.cnb.cool/ongridio/ongrid/grafana-oss:11.1.4
+    container_name: ongrid-grafana
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+    environment:
+      GF_SERVER_ROOT_URL: ${ONGRID_GRAFANA_ROOT_URL:-%(protocol)s://%(domain)s/grafana/}
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      # Pin admin user + password so manager's first-boot bootstrap can
+      # call /api/serviceaccounts to mint an SA token. install.sh
+      # generates a random GRAFANA_ADMIN_PASSWORD on first run.
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD required (auto-set by install.sh)}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Editor
+      # Login form intentionally enabled so admin can log in to inspect /
+      # rotate the bootstrap-created SA token. Anonymous viewer still
+      # works for read-only access from the ongrid UI's drilldown links.
+      GF_AUTH_DISABLE_LOGIN_FORM: "false"
+      GF_USERS_DEFAULT_THEME: system
+      # Default UI language for anonymous viewers. Without this Grafana
+      # picks from Accept-Language so a zh-CN browser shows Chinese
+      # even when the ongrid product UI is in EN. We pin en-US as the
+      # fallback; web/lib/drilldown.ts also appends ?lang=zh-Hans /
+      # en-US so the per-tab locale follows the product UI on Grafana
+      # 11.x where the query param is honored.
+      GF_USERS_DEFAULT_LANGUAGE: en-US
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      # Datasource provisioning URLs (loki / tempo). Set as env so the
+      # provisioning yamls can use plain ${VAR} interpolation —
+      # Grafana doesn't support shell-style ${VAR:-default} (v0.7.40
+      # fix: default-syntax silently produced empty url, which broke
+      # /grafana/explore with "unsupported protocol scheme").
+      ONGRID_LOG_URL: ${ONGRID_LOG_URL:-http://loki:3100}
+      ONGRID_TRACE_QUERY_URL: ${ONGRID_TRACE_QUERY_URL:-http://tempo:3200}
+    volumes:
+      # Grafana SQLite + provisioning state on host. Grafana runs as uid
+      # 472; chowned by install.sh. For production externalisation,
+      # point ONGRID_GRAFANA_INTERNAL_URL at the customer's Grafana.
+      - ${ONGRID_DATA_DIR:-/var/lib/ongrid}/grafana:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+        max-file: "5"
+
+# Named volumes intentionally removed — all stateful services bind-mount
+# to ${ONGRID_DATA_DIR:-/var/lib/ongrid}/<service> on the host. Operators
+# can back up, rotate, mount NFS / iSCSI, or point at the customer's
+# managed storage by overriding ONGRID_DATA_DIR (and ONGRID_LOG_DIR for
+# manager logs). install.sh creates the dirs + chowns to the right uids.
+# Existing installs with named volumes must run the migration documented
+# in README.md "数据卷迁移" before upgrading.

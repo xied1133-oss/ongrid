@@ -1,0 +1,82 @@
+# SearXNG settings for ongrid's built-in meta-search backend.
+#
+# Scope: docker-internal only. The container is on `ongrid_net` and is
+# never exposed to host / public — manager reaches it at
+# http://searxng:8080/search?q=...&format=json. We therefore don't need
+# the bot/limiter or fancy auth; what we do need is the JSON output
+# format enabled (default upstream config only ships `html`).
+#
+# Reference upstream defaults:
+#   https://github.com/searxng/searxng/blob/master/utils/templates/etc/searxng/settings.yml
+
+use_default_settings: true
+
+general:
+  instance_name: "ongrid-search"
+  # Don't surface SearXNG-internal links in the JSON; we only consume
+  # results[] from the API.
+  privacypolicy_url: false
+  donation_url: false
+  contact_url: false
+  enable_metrics: false
+
+server:
+  # secret_key is required; kept static because the service is not
+  # publicly reachable. Override in .env if you ever expose it.
+  secret_key: "ongrid-searxng-internal-only-not-for-public-exposure"
+  # Limiter (the spam-bot guard) is irrelevant on a docker-internal
+  # network — disabling avoids the redis dependency it implies.
+  limiter: false
+  image_proxy: false
+  # We always call /search?q=...&format=json from manager Go.
+  method: "GET"
+  default_http_headers:
+    X-Content-Type-Options: nosniff
+    X-Download-Options: noopen
+    X-Robots-Tag: noindex, nofollow
+    Referrer-Policy: no-referrer
+
+ui:
+  # SearXNG locale codes use Hans/Hant, not zh-CN. Leave empty to fall
+  # back to the upstream default (English) — the JSON API doesn't use
+  # this anyway; only the rarely-touched HTML page does.
+  default_locale: ""
+  query_in_title: false
+  infinite_scroll: false
+  # We disable result tracking / privacy-stats UI we don't need; this
+  # only affects the rarely-used HTML page anyway.
+  results_on_new_tab: false
+
+# Enable the JSON output format. Default upstream only exposes html;
+# the manager's web_search skill needs json.
+search:
+  safe_search: 1
+  autocomplete: ""
+  default_lang: ""
+  formats:
+    - html
+    - json
+
+# Engine selection. Defaults that work without per-engine credentials.
+# Uncomment the Chinese engines (baidu / sogou) for cn deployments.
+engines:
+  - name: bing
+    disabled: false
+  - name: duckduckgo
+    disabled: false
+  - name: brave
+    disabled: false
+  # Chinese-friendly engines — leave commented but listed so operators
+  # see the option. Both work without API keys.
+  # - name: baidu
+  #   disabled: false
+  # - name: sogou
+  #   disabled: false
+
+# Outgoing HTTP defaults. The 10s budget is shorter than the manager's
+# 30s skill timeout so a hung upstream cancels cleanly.
+outgoing:
+  request_timeout: 5.0
+  max_request_timeout: 10.0
+  pool_connections: 50
+  pool_maxsize: 50

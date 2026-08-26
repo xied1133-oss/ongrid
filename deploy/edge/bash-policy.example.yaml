@@ -1,0 +1,177 @@
+# Default ongrid bash skill policy (read-only baseline).
+#
+# Drop this file at /etc/ongrid-edge/bash-policy.yaml on the edge host
+# and the bash skill (internal/edgeagent/bash) will merge it on top of
+# cmdpolicy.DefaultReadOnly() at boot.
+#
+# Merge semantics (see internal/edgeagent/cmdpolicy/policy.go::LoadFromYAML):
+#   - binaries[*]: each entry FULLY REPLACES the same-name entry in the
+#     baseline. New names are appended. There is no per-field merge.
+#   - network_host_allowlist / path_allowlist: REPLACE when set.
+#   - stdout_cap_bytes / stderr_cap_bytes / timeout_seconds /
+#     max_argv_length: REPLACE when > 0.
+#
+# To shrink the policy, simply omit the binary you want to drop from
+# the baseline (the baseline still ships it). To remove a binary that
+# is part of the baseline you must restart the agent with a custom
+# build (the YAML override is additive — there is no "remove" verb).
+
+binaries:
+  # ===== ClassReadFS =====
+  - name: ls
+    class: read-fs
+  - name: cat
+    class: read-fs
+  - name: head
+    class: read-fs
+  - name: tail
+    class: read-fs
+  - name: grep
+    class: read-fs
+  - name: awk
+    class: read-fs
+    denied_args: ["system(", "| sh", "| bash", "exec("]
+  - name: sed
+    class: read-fs
+    denied_args: ["-i", "--in-place"]
+  - name: find
+    class: read-fs
+    denied_args: ["-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprintf", "-fls"]
+  - name: du
+    class: read-fs
+  - name: stat
+    class: read-fs
+  - name: wc
+    class: read-fs
+
+  # ===== ClassReadSystem =====
+  - name: ps
+    class: read-system
+  - name: df
+    class: read-system
+  - name: free
+    class: read-system
+  - name: ss
+    class: read-system
+  - name: lsof
+    class: read-system
+  - name: journalctl
+    class: read-system
+    denied_args:
+      - "--rotate"
+      - "--vacuum-time"
+      - "--vacuum-size"
+      - "--vacuum-files"
+      - "--flush"
+      - "--sync"
+
+  # ===== ClassMixed =====
+  - name: iptables
+    class: mixed
+    read_only_matchers:
+      - any_flag: ["-L", "--list", "-S", "--list-rules", "-C", "--check", "-n", "--numeric"]
+    write_matchers:
+      - any_flag: ["-A", "-I", "-D", "-R", "-F", "--flush", "-X", "-N", "-P", "-Z"]
+  - name: systemctl
+    class: mixed
+    read_only_matchers:
+      - any_flag:
+          - "status"
+          - "show"
+          - "cat"
+          - "list-units"
+          - "list-jobs"
+          - "list-sockets"
+          - "list-timers"
+          - "is-active"
+          - "is-enabled"
+          - "is-failed"
+    write_matchers:
+      - any_flag:
+          - "start"
+          - "stop"
+          - "restart"
+          - "reload"
+          - "enable"
+          - "disable"
+          - "daemon-reload"
+  - name: ip
+    class: mixed
+    read_only_matchers:
+      - subcmd_path: ["addr", "show"]
+      - subcmd_path: ["link", "show"]
+      - subcmd_path: ["route", "show"]
+      - subcmd: "addr"
+      - subcmd: "link"
+      - subcmd: "route"
+    write_matchers:
+      - any_flag: ["add", "del", "set", "replace", "change", "flush"]
+  - name: tc
+    class: mixed
+    read_only_matchers:
+      - subcmd_path: ["qdisc", "show"]
+      - subcmd_path: ["class", "show"]
+      - subcmd_path: ["filter", "show"]
+    write_matchers:
+      - any_flag: ["add", "del", "replace", "change", "link"]
+  - name: crontab
+    class: mixed
+    read_only_matchers:
+      - any_flag: ["-l", "--list"]
+    write_matchers:
+      - any_flag: ["-e", "-r", "-i"]
+
+  # ===== ClassNetwork =====
+  - name: ping
+    class: network
+    denied_args: ["-f"]
+  - name: dig
+    class: network
+  - name: nc
+    class: network
+    read_only_matchers:
+      - any_flag: ["-z"]
+    denied_args: ["-e", "-c", "-l"]
+  - name: curl
+    class: network
+    read_only_matchers:
+      - any_flag: ["--head", "-I"]
+    denied_args: ["-o", "-O", "--output", "-T", "--upload-file"]
+
+  # ===== ClassDenied (defense-in-depth — operator extending list) =====
+  - name: bash
+    class: denied
+  - name: sh
+    class: denied
+  - name: python
+    class: denied
+  - name: rm
+    class: denied
+  - name: chmod
+    class: denied
+
+# Outbound network allowlist. Each entry is either a CIDR
+# (10.0.0.0/8) or a hostname suffix (.internal). Empty list (default)
+# = deny ALL outbound. Uncomment / customise to permit specific
+# internal services.
+network_host_allowlist: []
+  # - 10.0.0.0/8
+  # - 192.168.0.0/16
+  # - .internal-svc.example.com
+
+# Per-call resource caps.
+stdout_cap_bytes: 65536
+stderr_cap_bytes: 16384
+timeout_seconds: 30
+max_argv_length: 32
+
+# Path allowlist — any /-prefixed argv token is checked against this
+# list (uses the same validator as the host_files skill). Default
+# matches host_files SandboxConfig.AllowedReadPaths.
+path_allowlist:
+  - /var
+  - /opt
+  - /home
+  - /tmp
+  - /srv
+  - /data

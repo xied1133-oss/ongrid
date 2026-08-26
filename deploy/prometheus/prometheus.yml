@@ -1,0 +1,27 @@
+# Dev-compose Prometheus config (ADR-009).
+# Bind-mounted into the prometheus container at /etc/prometheus/prometheus.yml.
+# remote_write receiver is enabled via command-line flag in docker-compose.yml,
+# so this file only configures self-scrape + scrape of ongrid manager.
+
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+scrape_configs:
+  - job_name: 'prometheus'
+    metrics_path: /prometheus/metrics
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'ongrid-manager'
+    static_configs:
+      - targets: ['ongrid:9100']
+    scrape_interval: 15s
+
+  # frontier 没有自暴露 /metrics（singchia/frontier:v1.2.4 暂未开），
+  # 等上游加了再来。
+  #
+  # Host metrics now flow edge → tunnel push → remote_write (ADR-014 Phase-B).
+  # The old `node-exporter-host` / `process-exporter-host` static jobs that
+  # scraped host.docker.internal were retired with edge_plugin_configs.metrics
+  # default-on; keeping them around would double-count the local edge.

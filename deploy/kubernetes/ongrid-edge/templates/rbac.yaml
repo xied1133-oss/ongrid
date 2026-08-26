@@ -1,0 +1,173 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "ongrid-edge.fullname" . }}-controller-credentials
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ongrid-edge.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames:
+      - {{ include "ongrid-edge.controllerCredentialSecretName" . | quote }}
+      - {{ include "ongrid-edge.telemetryCredentialSecretName" . | quote }}
+    verbs: ["get", "patch", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "ongrid-edge.fullname" . }}-controller-credentials
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ongrid-edge.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "ongrid-edge.fullname" . }}-controller-credentials
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "ongrid-edge.controllerServiceAccount" . }}
+    namespace: {{ .Release.Namespace }}
+{{- if and (eq (include "ongrid-edge.telemetryGatewayEnabled" .) "true") (eq (include "ongrid-edge.telemetryGatewayMode" .) "deployment") }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "ongrid-edge.fullname" . }}-telemetry-gateway
+  labels:
+    {{- include "ongrid-edge.labels" . | nindent 4 }}
+    app.kubernetes.io/component: telemetry-gateway
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "namespaces", "nodes"]
+    verbs: ["get", "list", "watch"]
+  # k8sattributes follows owner references so it can derive stable workload
+  # names from incoming Pod metadata. Keep this read-only and aligned with
+  # the workload fields extracted in the rendered Collector configuration.
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "ongrid-edge.fullname" . }}-telemetry-gateway
+  labels:
+    {{- include "ongrid-edge.labels" . | nindent 4 }}
+    app.kubernetes.io/component: telemetry-gateway
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "ongrid-edge.fullname" . }}-telemetry-gateway
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "ongrid-edge.telemetryGatewayServiceAccount" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- if and (eq (include "ongrid-edge.kubernetesMetricsEnabled" .) "true") (eq (include "ongrid-edge.kubernetesMetricsMode" .) "scraper") (eq (include "ongrid-edge.kubernetesAppMetricsDiscoveryEnabled" .) "true") }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "ongrid-edge.fullname" . }}-metrics-scraper-discovery
+  labels:
+    {{- include "ongrid-edge.labels" . | nindent 4 }}
+    app.kubernetes.io/component: metrics-scraper
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "ongrid-edge.fullname" . }}-metrics-scraper-discovery
+  labels:
+    {{- include "ongrid-edge.labels" . | nindent 4 }}
+    app.kubernetes.io/component: metrics-scraper
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "ongrid-edge.fullname" . }}-metrics-scraper-discovery
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "ongrid-edge.metricsScraperServiceAccount" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "ongrid-edge.fullname" . }}-node-cluster-identity
+  labels:
+    {{- include "ongrid-edge.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    resourceNames: ["kube-system"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "ongrid-edge.fullname" . }}-node-cluster-identity
+  labels:
+    {{- include "ongrid-edge.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "ongrid-edge.fullname" . }}-node-cluster-identity
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "ongrid-edge.nodeServiceAccount" . }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "ongrid-edge.fullname" . }}-controller
+  labels:
+    {{- include "ongrid-edge.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "namespaces", "pods", "services", "endpoints", "persistentvolumeclaims", "events"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["patch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["delete"]
+  - apiGroups: [""]
+    resources: ["pods/eviction"]
+    verbs: ["create"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets"]
+    verbs: ["patch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "ongrid-edge.fullname" . }}-controller
+  labels:
+    {{- include "ongrid-edge.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "ongrid-edge.fullname" . }}-controller
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "ongrid-edge.controllerServiceAccount" . }}
+    namespace: {{ .Release.Namespace }}

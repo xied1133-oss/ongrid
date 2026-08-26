@@ -1,0 +1,479 @@
+package traces
+
+import (
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/ongridio/ongrid/internal/edgeagent/plugins"
+)
+
+// TestRenderedStandaloneConfigAcceptedByCollector is an opt-in compatibility
+// check against the exact bundled otelcol-contrib version. Compatibility jobs
+// may set ONGRID_TEST_OTELCOL_BINARY; ordinary unit-test runs skip it.
+func TestRenderedStandaloneConfigAcceptedByCollector(t *testing.T) {
+	binary := strings.TrimSpace(os.Getenv("ONGRID_TEST_OTELCOL_BINARY"))
+	if binary == "" {
+		t.Skip("ONGRID_TEST_OTELCOL_BINARY is not set")
+	}
+	raw, err := render(plugins.PluginConfig{
+		Enabled:  true,
+		Endpoint: "https://manager.example.com/v1/traces",
+		AuthUser: "kt_access",
+		AuthPass: "ks_secret",
+		Spec: map[string]interface{}{
+			"omit_device_id":                    true,
+			"enable_k8sattributes":              true,
+			"enable_logs":                       true,
+			"enable_metrics":                    true,
+			"logs_endpoint":                     "https://manager.example.com/loki/api/v1/push",
+			"metrics_remote_write_endpoint":     "https://manager.example.com/prometheus/api/v1/write",
+			"metrics_remote_write_auth_user":    "kt_access",
+			"metrics_remote_write_auth_pass":    "ks_secret",
+			"metrics_remote_write_tls_insecure": true,
+			"bounded_pipelines":                 true,
+			"memory_limit_mib":                  384,
+			"memory_spike_limit_mib":            96,
+			"batch_send_size":                   2048,
+			"batch_max_size":                    4096,
+			"queue_size":                        512,
+		},
+	})
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	configPath := filepath.Join(t.TempDir(), "otelcol.yaml")
+	if err := os.WriteFile(configPath, raw, 0600); err != nil {
+		t.Fatalf("write rendered config: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, binary, "validate", "--config="+configPath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("otelcol-contrib rejected rendered config: %v\n%s", err, output)
+	}
+}
+
+func TestRenderHappyPath(t *testing.T) {
+	cfg := plugins.PluginConfig{
+		Enabled:  true,
+		EdgeID:   42,
+		Endpoint: "https://manager.example.com/v1/traces",
+		AuthUser: "ak-edge42",
+		AuthPass: "sk-secret",
+		Spec: map[string]interface{}{
+			"grpc_endpoint": "0.0.0.0:4317",
+			"http_endpoint": "0.0.0.0:4318",
+			"extra_attrs": map[string]interface{}{
+				"deployment_env": "test",
+			},
+		},
+	}
+	out, err := render(cfg)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	body := string(out)
+
+	for _, want := range []string{
+		// Receivers — both protocols must show up.
+		"otlp:",
+		"grpc:",
+		"http:",
+		"endpoint: 0.0.0.0:4317",
+		"endpoint: 0.0.0.0:4318",
+		// Exporter URL points at the full manager public trace endpoint.
+		// Use traces_endpoint so otelcol does not append /v1/traces again.
+		"traces_endpoint: https://manager.example.com/v1/traces",
+		// Resource attribute injection: device_id is the load-bearing label.
+		"key: device_id",
+		`value: "42"`,
+		"key: ongrid_source",
+		// Extra attribute echoes through.
+		"key: deployment_env",
+		// Pipeline shape: traces only, otlp -> resource/device -> batch ->
+		// otlphttp/manager.
+		"pipelines:",
+		"traces:",
+		"receivers: [otlp]",
+		"processors: [resource/device, batch]",
+		"exporters: [otlphttp/manager]",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("rendered config missing %q\n--- full body ---\n%s", want, body)
+		}
+	}
+}
+
+func TestRenderUsesTraceSpecificEndpoint(t *testing.T) {
+	cfg := plugins.PluginConfig{
+		Enabled:  true,
+		EdgeID:   1,
+		Endpoint: "https://manager.example.com/v1/traces",
+	}
+	out, err := render(cfg)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	body := string(out)
+	if !strings.Contains(body, "traces_endpoint: https://manager.example.com/v1/traces") {
+		t.Fatalf("expected traces_endpoint, got:\n%s", body)
+	}
+	if strings.Contains(body, "\n    endpoint: https://manager.example.com/v1/traces") {
+		t.Fatalf("full trace URL must not be rendered as otlphttp.endpoint; otelcol would append /v1/traces again:\n%s", body)
+	}
+}
+
+func TestRenderDefaultEndpoints(t *testing.T) {
+	cfg := plugins.PluginConfig{
+		Enabled:  true,
+		EdgeID:   1,
+		Endpoint: "https://manager.example.com/v1/traces",
+	}
+	out, err := render(cfg)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	body := string(out)
+	// Defaults bind to localhost so the receiver isn't accidentally
+	// reachable from the public network on multi-homed hosts.
+	if !strings.Contains(body, "endpoint: 127.0.0.1:4317") {
+		t.Errorf("default gRPC endpoint missing: %s", body)
+	}
+	if !strings.Contains(body, "endpoint: 127.0.0.1:4318") {
+		t.Errorf("default HTTP endpoint missing: %s", body)
+	}
+}
+
+func TestRenderTrimsTraceEndpointTrailingSlash(t *testing.T) {
+	cfg := plugins.PluginConfig{
+		Enabled:  true,
+		EdgeID:   1,
+		Endpoint: "https://manager.example.com/v1/traces/",
+	}
+	out, err := render(cfg)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	body := string(out)
+	if !strings.Contains(body, "traces_endpoint: https://manager.example.com/v1/traces") {
+		t.Fatalf("expected trimmed traces_endpoint, got:\n%s", body)
+	}
+	if strings.Contains(body, "traces_endpoint: https://manager.example.com/v1/traces/") {
+		t.Fatalf("trace endpoint should trim trailing slash:\n%s", body)
+	}
+}
+
+func TestRenderBearerWhenNoUser(t *testing.T) {
+	cfg := plugins.PluginConfig{
+		Enabled:  true,
+		EdgeID:   1,
+		Endpoint: "https://manager.example.com/v1/traces",
+		AuthPass: "tok-abc",
+	}
+	out, err := render(cfg)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	body := string(out)
+	if !strings.Contains(body, "Bearer tok-abc") {
+		t.Errorf("expected Bearer auth header when AuthUser empty, got:\n%s", body)
+	}
+}
+
+func TestRenderTLSInsecureSkipVerify(t *testing.T) {
+	cfg := plugins.PluginConfig{
+		Enabled:  true,
+		EdgeID:   1,
+		Endpoint: "https://manager.example.com/v1/traces",
+		Spec: map[string]interface{}{
+			"tls_insecure_skip_verify": true,
+		},
+	}
+	out, err := render(cfg)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	body := string(out)
+	for _, want := range []string{
+		"tls:",
+		"insecure_skip_verify: true",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("rendered config missing %q\n--- full body ---\n%s", want, body)
+		}
+	}
+}
+
+func TestRenderBasicWhenUserSet(t *testing.T) {
+	cfg := plugins.PluginConfig{
+		Enabled:  true,
+		EdgeID:   1,
+		Endpoint: "https://manager.example.com/v1/traces",
+		AuthUser: "ak",
+		AuthPass: "sk",
+	}
+	out, err := render(cfg)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	body := string(out)
+	if !strings.Contains(body, "Basic ") {
+		t.Errorf("expected Basic auth header when both user+pass set, got:\n%s", body)
+	}
+}
+
+func TestRenderUsesIndependentTraceAndLogAuthAndTLS(t *testing.T) {
+	out, err := render(plugins.PluginConfig{
+		Enabled:  true,
+		EdgeID:   1,
+		Endpoint: "https://tempo.example/v1/traces",
+		AuthUser: "tempo-user",
+		AuthPass: "tempo-pass",
+		Spec: map[string]interface{}{
+			"enable_logs":                   true,
+			"logs_endpoint":                 "https://loki.example/loki/api/v1/push",
+			"logs_auth_override":            true,
+			"logs_auth_user":                "loki-user",
+			"logs_auth_pass":                "loki-pass",
+			"tls_insecure_skip_verify":      true,
+			"logs_tls_insecure_skip_verify": false,
+		},
+	})
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	body := string(out)
+	if !strings.Contains(body, "Authorization: \"Basic dGVtcG8tdXNlcjp0ZW1wby1wYXNz\"") ||
+		!strings.Contains(body, "Authorization: \"Basic bG9raS11c2VyOmxva2ktcGFzcw==\"") {
+		t.Fatalf("independent auth headers missing:\n%s", body)
+	}
+	start := strings.Index(body, "otlphttp/loki_manager:")
+	if start < 0 {
+		t.Fatalf("Loki exporter missing:\n%s", body)
+	}
+	end := strings.Index(body[start:], "\nextensions:")
+	if end < 0 {
+		t.Fatalf("Loki exporter missing:\n%s", body)
+	}
+	if strings.Contains(body[start:start+end], "tls:") {
+		t.Fatalf("Loki inherited trace TLS policy:\n%s", body[start:start+end])
+	}
+}
+
+func TestRenderOmitDeviceIDForGateway(t *testing.T) {
+	cfg := plugins.PluginConfig{
+		Enabled:  true,
+		Endpoint: "https://manager.example.com/v1/traces",
+		Spec: map[string]interface{}{
+			"omit_device_id":          true,
+			"enable_k8sattributes":    true,
+			"enable_logs":             true,
+			"enable_metrics":          true,
+			"logs_endpoint":           "https://manager.example.com/loki/api/v1/push",
+			"metrics_export_endpoint": "127.0.0.1:9464",
+			"grpc_endpoint":           "0.0.0.0:4317",
+			"http_endpoint":           "0.0.0.0:4318",
+			"extra_attrs": map[string]interface{}{
+				"cluster_id": "1",
+			},
+		},
+	}
+	out, err := render(cfg)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	body := string(out)
+	if strings.Contains(body, "key: device_id") {
+		t.Fatalf("gateway config must not inject device_id:\n%s", body)
+	}
+	for _, want := range []string{
+		"endpoint: 0.0.0.0:4317",
+		"endpoint: 0.0.0.0:4318",
+		"k8sattributes:",
+		"auth_type: serviceAccount",
+		"k8s.namespace.name",
+		"k8s.deployment.name",
+		"key: loki.resource.labels",
+		"resource/loki_labels:",
+		"logs_endpoint: https://manager.example.com/loki/otlp/v1/logs",
+		"otlphttp/loki_manager:",
+		"logs:",
+		"exporters: [otlphttp/loki_manager]",
+		"prometheus/gateway:",
+		"endpoint: 127.0.0.1:9464",
+		"resource_to_telemetry_conversion:",
+		"metrics:",
+		"exporters: [prometheus/gateway]",
+		"processors: [k8sattributes, resource/device, batch]",
+		"processors: [k8sattributes, resource/device, resource/loki_labels, batch]",
+		"key: cluster_id",
+		`value: "1"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("rendered gateway config missing %q\n--- full body ---\n%s", want, body)
+		}
+	}
+}
+
+func TestRenderStandaloneGatewayUsesBoundedRemoteWritePipelines(t *testing.T) {
+	cfg := plugins.PluginConfig{
+		Enabled:  true,
+		Endpoint: "https://manager.example.com/v1/traces",
+		AuthUser: "kt_access",
+		AuthPass: "ks_secret",
+		Spec: map[string]interface{}{
+			"omit_device_id":                    true,
+			"enable_k8sattributes":              true,
+			"enable_logs":                       true,
+			"enable_metrics":                    true,
+			"logs_endpoint":                     "https://manager.example.com/loki/api/v1/push",
+			"metrics_remote_write_endpoint":     "https://manager.example.com/prometheus/api/v1/write",
+			"metrics_remote_write_auth_user":    "kt_access",
+			"metrics_remote_write_auth_pass":    "ks_secret",
+			"metrics_remote_write_tls_insecure": true,
+			"bounded_pipelines":                 true,
+			"memory_limit_mib":                  384,
+			"memory_spike_limit_mib":            96,
+			"batch_send_size":                   2048,
+			"batch_max_size":                    4096,
+			"queue_size":                        512,
+			"collector_metrics_endpoint":        "0.0.0.0:8888",
+		},
+	}
+	out, err := render(cfg)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	body := string(out)
+	for _, want := range []string{
+		"memory_limiter:",
+		"limit_mib: 384",
+		"spike_limit_mib: 96",
+		"batch/traces:",
+		"batch/logs:",
+		"batch/metrics:",
+		"send_batch_max_size: 4096",
+		"timeout: 1s",
+		"queue_size: 512",
+		"prometheusremotewrite/manager:",
+		"endpoint: https://manager.example.com/prometheus/api/v1/write",
+		"remote_write_queue:",
+		"num_consumers: 1",
+		"exporters: [prometheusremotewrite/manager]",
+		"processors: [memory_limiter, k8sattributes, resource/device, batch/traces]",
+		"processors: [memory_limiter, k8sattributes, resource/device, resource/loki_labels, batch/logs]",
+		"processors: [memory_limiter, k8sattributes, resource/device, batch/metrics]",
+		"host: 0.0.0.0",
+		"port: 8888",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("rendered standalone gateway config missing %q\n--- full body ---\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "prometheus/gateway:") {
+		t.Fatalf("standalone gateway must not retain the in-memory scrape exporter:\n%s", body)
+	}
+}
+
+func TestLokiOTLPLogsEndpointSupportsDirectAndManagerTargets(t *testing.T) {
+	tests := map[string]string{
+		"https://manager.example.com/loki/api/v1/push":  "https://manager.example.com/loki/otlp/v1/logs",
+		"https://manager.example.com/loki/otlp/v1/logs": "https://manager.example.com/loki/otlp/v1/logs",
+		"https://loki.example.com/otlp/v1/logs":         "https://loki.example.com/otlp/v1/logs",
+		"https://loki.example.com/prefix":               "https://loki.example.com/prefix/otlp/v1/logs",
+	}
+	for input, want := range tests {
+		got, err := lokiOTLPLogsEndpoint(input)
+		if err != nil {
+			t.Fatalf("lokiOTLPLogsEndpoint(%q): %v", input, err)
+		}
+		if got != want {
+			t.Fatalf("lokiOTLPLogsEndpoint(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestRenderTLSInsecureSkipVerifyDefaultsOn(t *testing.T) {
+	cfg := plugins.PluginConfig{
+		Enabled:  true,
+		EdgeID:   1,
+		Endpoint: "https://manager.example.com/v1/traces",
+	}
+	out, err := render(cfg)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	body := string(out)
+	// Default-on so the standard self-signed manager cert doesn't fail the
+	// OTLP/HTTPS push (issue #144).
+	if !strings.Contains(body, "insecure_skip_verify: true") {
+		t.Errorf("expected tls.insecure_skip_verify by default, got:\n%s", body)
+	}
+}
+
+func TestRenderRejectsGatewayMetricsWithoutEndpoint(t *testing.T) {
+	cfg := plugins.PluginConfig{
+		Enabled:  true,
+		Endpoint: "https://manager.example.com/v1/traces",
+		Spec: map[string]interface{}{
+			"omit_device_id": true,
+			"enable_metrics": true,
+		},
+	}
+	if _, err := render(cfg); err == nil {
+		t.Errorf("render must reject enable_metrics without metrics_export_endpoint")
+	}
+}
+
+func TestRenderRejectsGatewayLogsWithoutEndpoint(t *testing.T) {
+	cfg := plugins.PluginConfig{
+		Enabled:  true,
+		Endpoint: "https://manager.example.com/v1/traces",
+		Spec: map[string]interface{}{
+			"omit_device_id": true,
+			"enable_logs":    true,
+		},
+	}
+	if _, err := render(cfg); err == nil {
+		t.Errorf("render must reject enable_logs without logs_endpoint")
+	}
+}
+
+func TestRenderTLSInsecureSkipVerifyDisabled(t *testing.T) {
+	cfg := plugins.PluginConfig{
+		Enabled:  true,
+		EdgeID:   1,
+		Endpoint: "https://manager.example.com/v1/traces",
+		Spec:     map[string]interface{}{"tls_insecure_skip_verify": false},
+	}
+	out, err := render(cfg)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	body := string(out)
+	// With a real cert the operator opts out; the tls block must be absent
+	// so otelcol verifies the cert chain.
+	if strings.Contains(body, "insecure_skip_verify") {
+		t.Errorf("tls block must be absent when disabled, got:\n%s", body)
+	}
+}
+
+func TestRenderRejectsMissingEndpoint(t *testing.T) {
+	cfg := plugins.PluginConfig{Enabled: true, EdgeID: 1}
+	if _, err := render(cfg); err == nil {
+		t.Errorf("render must reject missing endpoint")
+	}
+}
+
+func TestRenderRejectsMissingEdgeID(t *testing.T) {
+	cfg := plugins.PluginConfig{Enabled: true, Endpoint: "https://x/v1/traces"}
+	if _, err := render(cfg); err == nil {
+		t.Errorf("render must reject missing edge_id")
+	}
+}
