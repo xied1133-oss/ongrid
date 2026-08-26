@@ -1,0 +1,11 @@
+schema_version: 1
+module_path: web_frontend/agents_skills
+title: 助理、技能与日常工具页面
+scope:
+    - web/src/pages/Agents.tsx
+    - web/src/pages/DailyTools.tsx
+    - web/src/pages/Skills.tsx
+source_files: []
+depends_on: []
+related_to:
+    - path: internal_manager

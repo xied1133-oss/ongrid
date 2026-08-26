@@ -1,0 +1,13 @@
+schema_version: 1
+module_path: web_frontend/alerts_incidents_tasks
+title: 告警、规则、事件与任务审批页面集
+scope:
+    - web/src/pages/Alerts.tsx
+    - web/src/pages/AlertRules.tsx
+    - web/src/pages/IncidentDetail.tsx
+    - web/src/pages/Tasks.tsx
+    - web/src/pages/Approvals.tsx
+source_files: []
+depends_on: []
+related_to:
+    - path: internal_manager

@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: web_frontend/shared_components
+title: 共享 UI 组件与页面布局
+scope:
+    - web/src/components/
+source_files: []
+depends_on: []
+related_to:
+    - path: web_frontend/app_shell
+    - path: web_frontend/shared_libs

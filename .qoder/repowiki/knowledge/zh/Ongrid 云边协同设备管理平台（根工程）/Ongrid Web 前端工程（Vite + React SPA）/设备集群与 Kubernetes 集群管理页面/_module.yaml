@@ -1,0 +1,12 @@
+schema_version: 1
+module_path: web_frontend/clusters_kubernetes
+title: 设备集群与 Kubernetes 集群管理页面
+scope:
+    - web/src/pages/Clusters.tsx
+    - web/src/pages/clusters/
+    - web/src/pages/Kubernetes.tsx
+    - web/src/pages/kubernetes/
+source_files: []
+depends_on: []
+related_to:
+    - path: internal_manager

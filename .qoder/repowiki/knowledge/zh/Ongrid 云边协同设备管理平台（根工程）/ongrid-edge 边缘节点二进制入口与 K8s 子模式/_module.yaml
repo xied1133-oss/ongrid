@@ -1,0 +1,8 @@
+schema_version: 1
+module_path: cmd_ongrid_edge
+title: ongrid-edge 边缘节点二进制入口与 K8s 子模式
+scope:
+    - cmd/ongrid-edge/
+source_files: []
+depends_on: []
+related_to: []

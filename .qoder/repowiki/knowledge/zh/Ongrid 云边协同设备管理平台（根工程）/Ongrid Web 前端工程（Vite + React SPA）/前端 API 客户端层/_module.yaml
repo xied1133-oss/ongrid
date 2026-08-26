@@ -1,0 +1,12 @@
+schema_version: 1
+module_path: web_frontend/api_client
+title: 前端 API 客户端层
+scope:
+    - web/src/api/
+source_files: []
+depends_on: []
+related_to:
+    - path: internal_iam
+    - path: internal_manager
+    - path: web_frontend/store_state
+    - path: web_frontend/tests_e2e

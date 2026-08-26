@@ -1,0 +1,30 @@
+schema_version: 1
+module_path: ""
+title: Ongrid 云边协同设备管理平台（根工程）
+scope:
+    - README.md
+    - CONTRIBUTING.md
+    - Makefile
+    - go.mod
+    - go.sum
+    - ROADMAP.md
+    - SECURITY.md
+    - AGENTS.md
+    - CHANGELOG.md
+    - CODEOWNERS
+    - CODE_OF_CONDUCT.md
+    - LICENSE
+    - README_DE.md
+    - README_ES.md
+    - README_FR.md
+    - README_JA.md
+    - README_KO.md
+    - README_PT.md
+    - README_RU.md
+    - README_ZH.md
+    - ROADMAP.zh-CN.md
+    - TRADEMARK.md
+    - VERSION
+source_files: []
+depends_on: []
+related_to: []

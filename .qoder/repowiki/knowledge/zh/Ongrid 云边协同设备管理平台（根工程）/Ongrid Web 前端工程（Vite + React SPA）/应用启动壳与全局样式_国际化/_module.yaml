@@ -1,0 +1,13 @@
+schema_version: 1
+module_path: web_frontend/app_shell
+title: 应用启动壳与全局样式/国际化
+scope:
+    - web/src/App.tsx
+    - web/src/main.tsx
+    - web/src/styles/
+    - web/src/i18n/
+source_files: []
+depends_on: []
+related_to:
+    - path: web_frontend/shared_components
+    - path: web_frontend/store_state

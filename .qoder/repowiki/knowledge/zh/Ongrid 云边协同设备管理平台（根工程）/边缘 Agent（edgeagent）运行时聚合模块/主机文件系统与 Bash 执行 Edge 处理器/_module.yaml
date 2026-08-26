@@ -1,0 +1,11 @@
+schema_version: 1
+module_path: internal_edgeagent/host_file_ops
+title: 主机文件系统与 Bash 执行 Edge 处理器
+scope:
+    - internal/edgeagent/host_files/
+    - internal/edgeagent/bash/
+source_files: []
+depends_on: []
+related_to:
+    - path: internal_edgeagent/command_policy
+    - path: internal_edgeagent/web_handlers

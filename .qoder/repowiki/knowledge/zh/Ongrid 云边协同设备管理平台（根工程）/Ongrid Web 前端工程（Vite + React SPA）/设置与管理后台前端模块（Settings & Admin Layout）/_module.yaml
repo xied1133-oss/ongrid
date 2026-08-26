@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: web_frontend/settings_admin
+title: 设置与管理后台前端模块（Settings & Admin Layout）
+scope:
+    - web/src/pages/settings/
+    - web/src/pages/AdminLayout.tsx
+    - web/src/pages/SettingsLayout.tsx
+source_files: []
+depends_on: []
+related_to: []

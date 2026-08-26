@@ -1,0 +1,11 @@
+schema_version: 1
+module_path: web_frontend/settings_admin/llm_agent
+title: 设置页：LLM 提供商、Agent 行为与凭据库
+scope:
+    - web/src/pages/settings/LLM.tsx
+    - web/src/pages/settings/Agent.tsx
+    - web/src/pages/settings/Secrets.tsx
+source_files: []
+depends_on: []
+related_to:
+    - path: internal_manager

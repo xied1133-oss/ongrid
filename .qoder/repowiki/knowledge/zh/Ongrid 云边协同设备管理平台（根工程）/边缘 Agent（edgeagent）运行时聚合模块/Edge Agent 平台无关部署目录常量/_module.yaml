@@ -1,0 +1,9 @@
+schema_version: 1
+module_path: internal_edgeagent/platform_dirs
+title: Edge Agent 平台无关部署目录常量
+scope:
+    - internal/edgeagent/edgedirs/
+source_files: []
+depends_on: []
+related_to:
+    - path: internal_edgeagent/install_service

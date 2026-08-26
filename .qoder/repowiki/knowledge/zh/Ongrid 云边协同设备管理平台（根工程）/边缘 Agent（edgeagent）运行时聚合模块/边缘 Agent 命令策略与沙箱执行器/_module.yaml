@@ -1,0 +1,9 @@
+schema_version: 1
+module_path: internal_edgeagent/command_policy
+title: 边缘 Agent 命令策略与沙箱执行器
+scope:
+    - internal/edgeagent/cmdpolicy/
+source_files: []
+depends_on: []
+related_to:
+    - path: internal_edgeagent/host_file_ops

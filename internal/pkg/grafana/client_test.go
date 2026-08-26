@@ -109,7 +109,7 @@ func TestUpsertDatasourceUpdatesWhenPresent(t *testing.T) {
 		switch {
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/datasources/uid/"):
 			_, _ = io.WriteString(w, `{"id":42,"uid":"uid-1"}`)
-		case r.Method == http.MethodPut && r.URL.Path == "/api/datasources/42":
+		case r.Method == http.MethodPut && r.URL.Path == "/api/datasources/uid/uid-1":
 			updated = true
 			_, _ = io.WriteString(w, `{}`)
 		default:
@@ -125,7 +125,7 @@ func TestUpsertDatasourceUpdatesWhenPresent(t *testing.T) {
 		t.Fatalf("Upsert: %v", err)
 	}
 	if !updated {
-		t.Fatal("PUT /api/datasources/42 never called")
+		t.Fatal("PUT /api/datasources/uid/uid-1 never called")
 	}
 }
 

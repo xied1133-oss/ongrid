@@ -1,0 +1,13 @@
+schema_version: 1
+module_path: web_frontend/observability_logs_traces
+title: 可观测性日志/链路/抓包页面
+scope:
+    - web/src/pages/Logs.tsx
+    - web/src/pages/Traces.tsx
+    - web/src/pages/PacketCaptures.tsx
+    - web/src/pages/PacketCaptureSessionDetail.tsx
+    - web/src/pages/PacketArtifactDetail.tsx
+source_files: []
+depends_on: []
+related_to:
+    - path: internal_manager

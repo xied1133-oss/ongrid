@@ -11,8 +11,15 @@
 - [web/src/pages/settings/Integrations.tsx](file://web/src/pages/settings/Integrations.tsx)
 - [web/src/lib/drilldown.ts](file://web/src/lib/drilldown.ts)
 - [internal/manager/server/integration/http.go](file://internal/manager/server/integration/http.go)
-- [internal/manager/biz/grafana/datasource_test.go](file://internal/manager/biz/grafana/datasource_test.go)
+- [internal/pkg/grafana/client_test.go](file://internal/pkg/grafana/client_test.go)
 </cite>
+
+## 更新摘要
+**所做更改**
+- 增强了 Grafana 客户端的错误处理机制，特别是针对只读数据源的处理
+- 添加了自动只读状态检测和优雅降级行为
+- 完善了测试覆盖范围，新增 248 行测试代码
+- 更新了数据源同步流程以支持文件基础配置的只读数据源
 
 ## 目录
 1. [简介](#简介)
@@ -27,12 +34,13 @@
 10. [附录：开发与配置示例](#附录开发与配置示例)
 
 ## 简介
-本技术文档面向 Ongrid 平台中“Grafana 集成”的实现与使用，覆盖以下主题：
+本技术文档面向 Ongrid 平台中"Grafana 集成"的实现与使用，覆盖以下主题：
 - 根地址、Service Account Token、API Key、Org ID 的配置与优先级
 - 连接测试、数据源同步、仪表板同步的工作原理
 - Service Account 与 API Key 两种认证方式的区别与适用场景
 - 如何添加新的数据源到 Grafana，以及如何配置深链接参数
 - 多组织环境下的配置要点与常见问题排查
+- **新增**：增强了对只读数据源的错误处理和优雅降级机制
 
 ## 项目结构
 Ongrid 的 Grafana 集成由三层组成：
@@ -69,6 +77,7 @@ Biz --> Provision["内置数据源清单<br/>deploy/grafana/provisioning/datasou
 - Grafana HTTP 客户端（pkg/grafana.Client）
   - 支持 Bearer（Service Account Token / API Key）与 Basic Auth 两种认证
   - 提供 Health、UpsertDatasource、EnsureFolder、UpsertDashboard、FetchDashboard、ServiceAccount 创建与令牌签发等能力
+  - **新增**：增强的只读数据源检测和优雅降级处理
 - Grafana 业务服务（biz/grafana.Service）
   - 从系统设置读取 root_url、sa_token/api_key、org_id 等
   - 实现 Test/Sync/SyncLoki/SyncLogsDatasource/SyncElasticsearch/FetchDashboardJSON 等操作
@@ -137,7 +146,7 @@ Note over S,C : Sync 时还会 EnsureFolder/UpsertDatasource/UpsertDashboard
 - 首次启动引导
   - 若为内嵌 Grafana 且提供了 admin 账号密码，会尝试自动创建 Service Account 并签发 token，写入系统设置
 - 前端界面
-  - 设置页提供 root_url、sa_token、api_key、org_id 字段，敏感字段支持“显示/隐藏”
+  - 设置页提供 root_url、sa_token、api_key、org_id 字段，敏感字段支持"显示/隐藏"
 
 ```mermaid
 flowchart TD
@@ -173,15 +182,19 @@ BuildClient --> Next["继续执行 Test/Sync"]
 - [internal/manager/biz/grafana/service.go:201-210](file://internal/manager/biz/grafana/service.go#L201-L210)
 
 ### 数据源同步（Prometheus/Loki/Elasticsearch）
+
+**已更新** 增强了只读数据源的处理机制
+
 - 固定 UID 的数据源
-  - Prometheus：ongrid-prometheus
-  - Loki：ongrid-loki
+  - Prometheus：ongrid-prometheus（editable: false，通过文件配置）
+  - Loki：ongrid-loki（editable: true，支持运行时更新）
   - Elasticsearch：ongrid-elasticsearch
 - 同步逻辑
   - 确保文件夹 ongrid 存在
   - 根据系统设置生成对应数据源的 JSONData/SecureJSONData（含鉴权信息）
   - 使用 UpsertDatasource 进行幂等更新（按 UID）
-  - 对只读 provisioned 的数据源（editable:false）做兼容处理，避免覆盖失败
+  - **新增**：对只读 provisioned 的数据源做兼容处理，避免覆盖失败
+  - **新增**：自动检测 readOnly 字段，优雅跳过只读数据源的更新
 - 日志后端切换
   - 支持仅同步当前活跃的日志后端（Loki 或 Elasticsearch）
 
@@ -197,6 +210,9 @@ S->>C : UpsertDatasource(UID=ongrid-prometheus)
 C->>G : GET /api/datasources/uid/...
 alt 已存在且可写
 C->>G : PUT /api/datasources/{id}
+else 已存在但只读
+C->>C : 检测 readOnly=true
+C-->>S : 跳过更新优雅降级
 else 不存在
 C->>G : POST /api/datasources
 end
@@ -220,7 +236,7 @@ C->>G : GET/PUT/POST ...
 - 内置仪表板
   - 随二进制嵌入，按文件名顺序推送至 ongrid 文件夹，overwrite=true 保证幂等
 - 监控面板镜像
-  - 将前端 Monitor 页面的面板列表镜像为一个受管仪表板（uid 固定），用于“在 Grafana 中打开”
+  - 将前端 Monitor 页面的面板列表镜像为一个受管仪表板（uid 固定），用于"在 Grafana 中打开"
 - 远程仪表板获取
   - 通过 FetchDashboard(uid) 获取原始 JSON，供前端渲染 PromQL 面板时使用
 
@@ -247,11 +263,11 @@ F --> G["浏览器跳转到 Grafana Explore"]
 
 **图表来源**
 - [web/src/lib/drilldown.ts:190-222](file://web/src/lib/drilldown.ts#L190-L222)
-- [web/src/pages/settings/Integrations.tsx:747-780](file://web/src/pages/settings/Integrations.tsx#L747-L780)
+- [web/src/pages/settings/Integrations.tsx:747-780](file://web/src/pages/settings/Integrations.tsx#L747-780)
 
 **章节来源**
 - [web/src/lib/drilldown.ts:190-222](file://web/src/lib/drilldown.ts#L190-L222)
-- [web/src/pages/settings/Integrations.tsx:747-780](file://web/src/pages/settings/Integrations.tsx#L747-L780)
+- [web/src/pages/settings/Integrations.tsx:747-780](file://web/src/pages/settings/Integrations.tsx#L747-780)
 
 ### Service Account 与 API Key 的区别与使用场景
 - Service Account Token
@@ -267,6 +283,45 @@ F --> G["浏览器跳转到 Grafana Explore"]
 - [internal/manager/biz/grafana/service.go:125-190](file://internal/manager/biz/grafana/service.go#L125-L190)
 - [internal/manager/biz/grafana/service.go:433-460](file://internal/manager/biz/grafana/service.go#L433-L460)
 - [internal/manager/model/setting/model.go:164-182](file://internal/manager/model/setting/model.go#L164-L182)
+
+### 增强的错误处理机制
+
+**新增** 专门针对只读数据源的处理
+
+- 自动只读状态检测
+  - 在 UpsertDatasource 方法中，首先通过 GET 请求获取数据源信息
+  - 检测响应中的 `readOnly` 字段，如果为 true 则跳过后续更新操作
+  - 避免因文件基础配置创建的只读数据源导致的更新失败
+- 优雅降级行为
+  - 当检测到只读数据源时，直接返回 nil（成功），而不是抛出错误
+  - 保持系统的稳定性，允许其他数据源的正常同步
+- 向后兼容性
+  - 即使未来版本的 Grafana 移除了 readOnly 字段，也会通过错误消息匹配进行兜底处理
+  - 支持多种错误消息格式："read-only data source" 和 "Cannot update read-only"
+
+```mermaid
+flowchart TD
+Start["开始 UpsertDatasource"] --> GetDS["GET /api/datasources/uid/{uid}"]
+GetDS --> CheckExists{"数据源是否存在?"}
+CheckExists --> |否| CreateDS["POST /api/datasources"]
+CheckExists --> |是| CheckReadOnly{"readOnly 字段?"}
+CheckReadOnly --> |true| SkipUpdate["跳过更新只读"]
+CheckReadOnly --> |false| UpdateDS["PUT /api/datasources/uid/{uid}"]
+UpdateDS --> CheckError{"是否只读错误?"}
+CheckError --> |是| GracefulFallback["优雅降级忽略错误"]
+CheckError --> |否| Success["完成"]
+SkipUpdate --> Success
+CreateDS --> Success
+GracefulFallback --> Success
+```
+
+**图表来源**
+- [internal/pkg/grafana/client.go:115-159](file://internal/pkg/grafana/client.go#L115-L159)
+- [internal/pkg/grafana/client.go:162-172](file://internal/pkg/grafana/client.go#L162-L172)
+
+**章节来源**
+- [internal/pkg/grafana/client.go:115-159](file://internal/pkg/grafana/client.go#L115-L159)
+- [internal/pkg/grafana/client.go:162-172](file://internal/pkg/grafana/client.go#L162-L172)
 
 ## 依赖关系分析
 - HTTP 路由依赖 biz/grafana.Service 接口，仅暴露 Test/Sync/SyncLoki/FetchDashboardJSON
@@ -301,12 +356,11 @@ Biz --> Prov["provisioning 数据源清单"]
   - 默认 HTTP 客户端超时 15s；可通过 TLSInsecure 控制证书校验
 - 幂等性
   - 数据源与仪表板按 UID 操作，避免重复创建
-  - 对只读 provisioned 数据源做兼容，避免覆盖失败
+  - **新增**：对只读 provisioned 数据源做兼容，避免覆盖失败
 - 健壮性
   - Health 检查失败不会阻塞启动；Bootstrap 失败仅记录告警
   - 错误信息对用户友好，便于定位配置问题
-
-[本节为通用指导，不直接分析具体文件]
+  - **新增**：优雅降级机制确保部分数据源同步失败不影响整体流程
 
 ## 故障排查指南
 - 连接失败
@@ -316,7 +370,8 @@ Biz --> Prov["provisioning 数据源清单"]
   - 确认 Service Account 具有所需权限（如读写数据源、仪表板）
   - 对外部 Grafana，确认 API Key 未过期且具备相应权限
 - 数据源无法更新
-  - 若数据源由 provisioning 以 editable:false 创建，API 将无法修改；需调整 provision 文件或改为可编辑
+  - **新增**：若数据源由 provisioning 以 editable:false 创建，API 将无法修改；这是预期行为，系统会自动跳过
+  - 如需修改，需调整 provision 文件或改为可编辑模式
 - 仪表板未同步
   - 检查 ongrid 文件夹是否存在；查看日志中仪表板标题列表
 - 深链接无效
@@ -327,12 +382,10 @@ Biz --> Prov["provisioning 数据源清单"]
 - [internal/pkg/grafana/client.go:65-84](file://internal/pkg/grafana/client.go#L65-L84)
 - [internal/pkg/grafana/client.go:115-159](file://internal/pkg/grafana/client.go#L115-L159)
 - [internal/manager/biz/grafana/service.go:212-299](file://internal/manager/biz/grafana/service.go#L212-L299)
-- [web/src/pages/settings/Integrations.tsx:747-780](file://web/src/pages/settings/Integrations.tsx#L747-L780)
+- [web/src/pages/settings/Integrations.tsx:747-780](file://web/src/pages/settings/Integrations.tsx#L747-780)
 
 ## 结论
-Ongrid 的 Grafana 集成通过清晰的三层架构实现了安全的连接测试、数据源与仪表板的自动化同步，并提供灵活的认证方式与深链接能力。通过固定 UID 与幂等设计，保证了在多环境、多组织下的稳定运行。建议在生产环境中优先使用 Service Account Token，并在必要时结合 API Key 作为回退方案。
-
-[本节为总结，不直接分析具体文件]
+Ongrid 的 Grafana 集成通过清晰的三层架构实现了安全的连接测试、数据源与仪表板的自动化同步，并提供灵活的认证方式与深链接能力。通过固定 UID 与幂等设计，保证了在多环境、多组织下的稳定运行。**最新的增强功能进一步提升了系统的健壮性，特别是对只读数据源的优雅处理，确保了在各种部署场景下的可靠运行。** 建议在生产环境中优先使用 Service Account Token，并在必要时结合 API Key 作为回退方案。
 
 ## 附录：开发与配置示例
 
@@ -342,6 +395,7 @@ Ongrid 的 Grafana 集成通过清晰的三层架构实现了安全的连接测�
 - 在 Sync 流程中增加对该数据源的 UpsertDatasource 调用
 - 如需安全字段（如密码、密钥），放入 SecureJSONData；普通配置放入 JSONData
 - 通过前端设置页或系统设置更新 root_url 与认证信息后，执行同步
+- **新增**：如果需要支持只读模式，确保在 provisioning 文件中设置 appropriate 的 editable 标志
 
 参考位置：
 - 数据源结构与 upsert 逻辑：[internal/pkg/grafana/client.go:86-159](file://internal/pkg/grafana/client.go#L86-L159)
@@ -354,7 +408,7 @@ Ongrid 的 Grafana 集成通过清晰的三层架构实现了安全的连接测�
 
 ### 配置深链接参数（Explore 跳转）
 - 在前端设置页中配置 root_url 与 org_id
-- 点击“在 Grafana 打开”时，前端会基于 drilldown.ts 的规则拼装 Explore URL
+- 点击"在 Grafana 打开"时，前端会基于 drilldown.ts 的规则拼装 Explore URL
 - 若 root_url 不可达，将回退到同域 /grafana
 
 参考位置：
@@ -379,7 +433,7 @@ Ongrid 的 Grafana 集成通过清晰的三层架构实现了安全的连接测�
 
 ### 预置数据源与仪表板
 - 预置数据源
-  - Prometheus：默认指向内嵌 prometheus 服务，editable=false
+  - Prometheus：默认指向内嵌 prometheus 服务，editable=false（只读模式）
   - Loki：默认指向 loki 服务，editable=true，可由运行时更新
 - 仪表板
   - 内置仪表板随二进制嵌入，同步时推送到 ongrid 文件夹
@@ -393,3 +447,24 @@ Ongrid 的 Grafana 集成通过清晰的三层架构实现了安全的连接测�
 - [deploy/grafana/provisioning/datasources/prometheus.yml:1-11](file://deploy/grafana/provisioning/datasources/prometheus.yml#L1-L11)
 - [deploy/grafana/provisioning/datasources/loki.yml:1-20](file://deploy/grafana/provisioning/datasources/loki.yml#L1-L20)
 - [internal/manager/biz/grafana/service.go:487-528](file://internal/manager/biz/grafana/service.go#L487-L528)
+
+### 测试覆盖与质量保证
+
+**新增** 全面的测试覆盖
+
+- 单元测试覆盖
+  - Health 检查测试：验证认证头和响应解析
+  - 数据源同步测试：涵盖创建、更新、只读跳过等场景
+  - 仪表板操作测试：验证包装负载和错误处理
+  - 错误处理测试：确保非 2xx 响应被正确处理
+- 端到端测试
+  - 验证 provisioning 文件的 editable 标志配置
+  - 确保数据源同步的正确性和完整性
+
+参考位置：
+- 客户端测试：[internal/pkg/grafana/client_test.go:1-249](file://internal/pkg/grafana/client_test.go#L1-L249)
+- 端到端测试：[tests/e2e/grafana_loki_datasource_test.go:31-70](file://tests/e2e/grafana_loki_datasource_test.go#L31-L70)
+
+**章节来源**
+- [internal/pkg/grafana/client_test.go:1-249](file://internal/pkg/grafana/client_test.go#L1-L249)
+- [tests/e2e/grafana_loki_datasource_test.go:31-70](file://tests/e2e/grafana_loki_datasource_test.go#L31-L70)

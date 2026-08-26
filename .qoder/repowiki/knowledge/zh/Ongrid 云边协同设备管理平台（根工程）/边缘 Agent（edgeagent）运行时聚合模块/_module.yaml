@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: internal_edgeagent
+title: 边缘 Agent（edgeagent）运行时聚合模块
+scope:
+    - internal/edgeagent/
+source_files: []
+depends_on: []
+related_to:
+    - path: deploy_assets
+    - path: internal_pkg

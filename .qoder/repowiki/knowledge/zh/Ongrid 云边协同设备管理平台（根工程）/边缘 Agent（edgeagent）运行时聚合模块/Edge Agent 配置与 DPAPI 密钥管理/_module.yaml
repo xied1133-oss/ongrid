@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: internal_edgeagent/config_secrets
+title: Edge Agent 配置与 DPAPI 密钥管理
+scope:
+    - internal/edgeagent/config/
+    - internal/edgeagent/dpapi/
+source_files: []
+depends_on: []
+related_to:
+    - path: internal_edgeagent/install_service

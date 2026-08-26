@@ -1,0 +1,11 @@
+schema_version: 1
+module_path: internal_edgeagent/collector
+title: 边缘 Agent 指标采集与业务运行循环
+scope:
+    - internal/edgeagent/collector/
+    - internal/edgeagent/biz/
+source_files: []
+depends_on: []
+related_to:
+    - path: internal_edgeagent/k8s_data_plane
+    - path: internal_edgeagent/plugins
