@@ -1,0 +1,29 @@
+# /etc/ongrid-edge/scrape.yaml
+#
+# Multi-target scrape config consumed when ONGRID_EDGE_COLLECTOR_MODE=scrape.
+# Each target is polled independently at its own interval; failures are
+# logged but never block other targets.
+#
+# Source label on the wire is "scrape:<name>" — pick a unique, stable name.
+
+targets:
+  - name: node-exporter
+    role: host
+    url: http://127.0.0.1:9100/metrics
+    interval: 15s
+    timeout: 5s
+
+  - name: kubelet-cadvisor
+    role: component
+    url: https://127.0.0.1:10250/metrics/cadvisor
+    interval: 30s
+    timeout: 10s
+    bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    tls_insecure: true
+
+  - name: mysql-exporter
+    role: component
+    url: http://127.0.0.1:9104/metrics
+    interval: 30s
+    static_labels:
+      app: mysql-prod

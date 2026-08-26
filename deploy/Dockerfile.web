@@ -1,0 +1,43 @@
+# syntax=docker/dockerfile:1.7
+# ongrid-web image — multi-stage. Stage 1 builds the SPA from web/, stage 2
+# bakes the built assets into nginx. nginx.conf and TLS certs are bind-mounted
+# at runtime by docker-compose, so operators can edit them without rebuilding.
+# Build context MUST be the repo root (Dockerfile lives in deploy/, but it
+# COPYs `web/` from the root).
+
+ARG VERSION=dev
+
+# ---------- Stage 1: build the SPA ----------
+# The SPA output is architecture-independent. Build it once on the native
+# runner instead of running npm/TypeScript under QEMU for the arm64 target.
+FROM --platform=$BUILDPLATFORM node:20-alpine AS builder
+
+ARG VERSION
+WORKDIR /app
+
+# Cache dependency install layer separately from the source tree.
+# `--mount=type=cache,target=/root/.npm` keeps npm's package cache
+# across rebuilds — without it `npm ci` always re-downloads ~300MB.
+COPY web/package.json web/package-lock.json* ./
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --prefer-offline
+
+COPY web/ ./
+# vite cache persists the build artefact cache between rebuilds too,
+# so a no-op web build drops from ~40s to ~5s.
+RUN --mount=type=cache,target=/root/.npm \
+    --mount=type=cache,target=/app/node_modules/.vite \
+    npm run build
+
+# ---------- Stage 2: nginx + static assets ----------
+FROM nginx:1.27-alpine
+
+# Built SPA assets shipped inside the image so it can serve standalone if
+# operators forget the bind-mount (ADR-008).
+COPY --from=builder /app/dist/ /usr/share/nginx/html/
+
+# Default fallback config — overridden by docker-compose bind-mount in
+# production. Lets the image run as a smoke test image without extra files.
+COPY deploy/nginx/nginx.conf /etc/nginx/nginx.conf
+
+EXPOSE 80 443

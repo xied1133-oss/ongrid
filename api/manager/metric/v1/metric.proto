@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package ongrid.manager.metric.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/singchia/ongrid/api/gen/manager/metric/v1;metricv1";
+
+// MetricService 读取业务主机指标；写入路径由 edge tunnel push_host_metrics + 内部
+// Ingester 处理（见 ADR-004），不通过此 service。
+// org_id 从 URL path 与 JWT claims 取（ADR-003）。
+service MetricService {
+    // QueryHostMetrics 返回某个 edge 在 [from, to] 区间的时序点。
+    // resolution 决定读 raw / 5m / 1h；AUTO 按 ADR-004 §3.3 的窗口规则选表：
+    //   ≤6h → RAW，≤7d → M5，>7d → H1。
+    rpc QueryHostMetrics(QueryHostMetricsRequest) returns (QueryHostMetricsResponse);
+}
+
+// Resolution 时间粒度选择。
+enum Resolution {
+    RESOLUTION_UNSPECIFIED = 0;
+    RESOLUTION_AUTO = 1; // 按窗口自动选
+    RESOLUTION_RAW = 2; // 10s 原始采样
+    RESOLUTION_M5 = 3; // 5 分钟聚合
+    RESOLUTION_H1 = 4; // 1 小时聚合
+}
+
+// HostMetricPoint 一个时序点；聚合表的 min/max/avg 差异由后端在聚合后按 avg 返回，
+// 高级调用者若需 min/max，Phase 2 再扩展字段。
+message HostMetricPoint {
+    google.protobuf.Timestamp ts = 1 [json_name = "ts"];
+    float cpu_pct = 2 [json_name = "cpu_pct"];
+    float mem_pct = 3 [json_name = "mem_pct"];
+    float load1 = 4 [json_name = "load1"];
+    float load5 = 5 [json_name = "load5"];
+    float load15 = 6 [json_name = "load15"];
+    uint64 net_rx_bps = 7 [json_name = "net_rx_bps"];
+    uint64 net_tx_bps = 8 [json_name = "net_tx_bps"];
+    float disk_used_pct = 9 [json_name = "disk_used_pct"];
+}
+
+message QueryHostMetricsRequest {
+    uint64 edge_id = 1 [json_name = "edge_id"];
+    google.protobuf.Timestamp from = 2 [json_name = "from"];
+    google.protobuf.Timestamp to = 3 [json_name = "to"];
+    Resolution resolution = 4 [json_name = "resolution"];
+}
+
+message QueryHostMetricsResponse {
+    uint64 edge_id = 1 [json_name = "edge_id"];
+    // 实际采用的粒度（即便请求是 AUTO，响应回显真实选择的表）。
+    Resolution resolution = 2 [json_name = "resolution"];
+    repeated HostMetricPoint points = 3 [json_name = "points"];
+}

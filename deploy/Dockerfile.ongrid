@@ -1,0 +1,158 @@
+# syntax=docker/dockerfile:1.7
+# ongrid cloud service image — multi-stage, distroless final.
+# Build context MUST be the repo root (see Makefile target `docker-ongrid`).
+
+ARG VERSION=dev
+
+# ---------- Stage 1: builder ----------
+# We need CGO for the fastembed-go local embedder (yalue/onnxruntime_go
+# is a thin cgo wrapper over libonnxruntime). Switched base from
+# golang:1.25-alpine to bookworm so the build host has gcc + glibc to
+# satisfy the cgo link step + the runtime image (also debian) so the
+# onnxruntime .so finds its dependencies (libstdc++, libgomp).
+FROM golang:1.25-bookworm AS builder
+
+ARG VERSION
+ARG TARGETARCH
+WORKDIR /app
+
+RUN set -eux; \
+    echo 'Acquire::Retries "3";' > /etc/apt/apt.conf.d/80-retries; \
+    for i in 1 2 3 4 5; do \
+        apt-get update && apt-get install -y --no-install-recommends \
+            build-essential pkg-config && break; \
+        [ "$i" = 5 ] && exit 1; echo "apt attempt $i failed, retrying in 5s"; sleep 5; \
+    done; \
+    rm -rf /var/lib/apt/lists/*
+
+# Cache go.mod / go.sum layer separately from source. The
+# `--mount=type=cache,target=/go/pkg/mod` keeps the module download
+# cache across image rebuilds — without it every package run repays
+# the ~150s mod-download cost. Requires syntax=docker/dockerfile:1.7
+# (declared at the top of this file).
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+
+# Copy the rest of the repo (build context = repo root).
+COPY . .
+
+# CGO_ENABLED=1 because of the local embedder (see top of stage 1).
+# Two cache mounts:
+#   /go/pkg/mod    — module download cache (same as above)
+#   /root/.cache/go-build — Go's per-package compile cache; the big
+#                          win — a no-op rebuild drops from ~2min to
+#                          ~5s when the cache hits.
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=1 GOOS=linux GOARCH="${TARGETARCH:-$(go env GOARCH)}" \
+    go build -trimpath \
+    -ldflags="-s -w -X main.version=${VERSION}" \
+    -o /out/ongrid ./cmd/ongrid
+
+# ---------- Stage 2: runtime ----------
+# debian:bookworm-slim so the cgo binary's glibc + libstdc++ + libgomp
+# deps resolve at runtime (alpine's musl would need a separate
+# onnxruntime musl build that doesn't ship from upstream). git is still
+# needed for knowledge-base repo sync, openssh-client for SSH-style
+# repo URLs.
+FROM debian:bookworm-slim
+
+# Knowledge-base + onnxruntime runtime deps.
+#   - git / openssh-client / ca-certificates / tzdata: same role as
+#     before the bookworm switch.
+#   - libgomp1: openmp runtime libonnxruntime needs.
+#   - libstdc++6 / libc6: already present in bookworm-slim but kept
+#     explicit so a future minify pass doesn't surprise us.
+#   - curl: needed by the in-image entry-shim if we ever inline the
+#     model download; lightweight, keep it.
+#   - python3 / python3-pip: the cloud_bash sandbox runs as non-root with
+#     no package manager, so an agent can't install tooling at runtime; a
+#     huge swath of cloud CLIs (tccli, awscli, …) are Python. Ship a usable
+#     Python interpreter so cloud_bash can install + run them. The TOOLS
+#     themselves are NOT baked here — they install into a host-mounted
+#     persistent volume (/var/lib/ongrid/tools, the cloud_bash PYTHONUSERBASE)
+#     so they survive container recreation, don't bloat the image, and can be
+#     added at runtime via the approval-gated cloud_bash (no image rebuild).
+# Retry up to 5× — deb.debian.org intermittently 502s, and a single transient
+# failure here otherwise kills the whole image build. Acquire::Retries also
+# retries individual package downloads within one apt run.
+RUN set -eux; \
+    echo 'Acquire::Retries "3";' > /etc/apt/apt.conf.d/80-retries; \
+    for i in 1 2 3 4 5; do \
+        apt-get update && apt-get install -y --no-install-recommends \
+            git openssh-client ca-certificates tzdata libgomp1 libstdc++6 curl \
+            python3 python3-pip && break; \
+        [ "$i" = 5 ] && exit 1; echo "apt attempt $i failed, retrying in 5s"; sleep 5; \
+    done; \
+    rm -rf /var/lib/apt/lists/*
+
+# ONNX Runtime shared library. Pin the version so a future apt-mirror
+# bump doesn't silently change ABI. v1.20.1 is the latest stable that
+# fastembed-go's yalue/onnxruntime_go@v1.7.0 was tested against.
+ARG ONNXRUNTIME_VERSION=1.20.1
+ARG TARGETARCH
+RUN set -eux; \
+    arch="${TARGETARCH:-$(dpkg --print-architecture)}"; \
+    case "${arch}" in \
+        amd64|x86_64) ORT_ARCH=x64; NUGET_RID=linux-x64 ;; \
+        arm64|aarch64) ORT_ARCH=aarch64; NUGET_RID=linux-arm64 ;; \
+        *) echo "unsupported arch ${arch}" >&2; exit 1 ;; \
+    esac; \
+    if curl -fsSL -o /tmp/ort.tgz \
+        "https://github.com/microsoft/onnxruntime/releases/download/v${ONNXRUNTIME_VERSION}/onnxruntime-linux-${ORT_ARCH}-${ONNXRUNTIME_VERSION}.tgz"; then \
+        tar -xzf /tmp/ort.tgz -C /tmp; \
+        install -m 0755 /tmp/onnxruntime-linux-${ORT_ARCH}-${ONNXRUNTIME_VERSION}/lib/libonnxruntime.so.${ONNXRUNTIME_VERSION} /usr/lib/; \
+    else \
+        curl -fsSL -o /tmp/ort.nupkg \
+            "https://www.nuget.org/api/v2/package/Microsoft.ML.OnnxRuntime/${ONNXRUNTIME_VERSION}"; \
+        python3 -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extract(sys.argv[2], sys.argv[3])' \
+            /tmp/ort.nupkg "runtimes/${NUGET_RID}/native/libonnxruntime.so" /tmp/ort-nuget; \
+        install -m 0755 /tmp/ort-nuget/runtimes/${NUGET_RID}/native/libonnxruntime.so /usr/lib/libonnxruntime.so.${ONNXRUNTIME_VERSION}; \
+    fi; \
+    ln -sf /usr/lib/libonnxruntime.so.${ONNXRUNTIME_VERSION} /usr/lib/libonnxruntime.so; \
+    rm -rf /tmp/ort.tgz /tmp/ort.nupkg /tmp/ort-nuget /tmp/onnxruntime-linux-${ORT_ARCH}-${ONNXRUNTIME_VERSION}; \
+    ldconfig
+ENV ONNX_PATH=/usr/lib/libonnxruntime.so
+
+COPY --from=builder /out/ongrid /ongrid
+
+# chatruntime.LoadAll reads from `./skills` and `./agents` relative to
+# the binary's working directory. Ship the in-tree persona / SKILL.md
+# bundles into the image so they're available at runtime; users can
+# still install more via the marketplace at /var/lib/ongrid/marketplace
+# (separate root, separate loader).
+COPY --from=builder /app/skills /skills
+COPY --from=builder /app/agents /agents
+
+# ADR-024 edge upgrade bundles are bind-mounted from the host at
+# runtime (see deploy/docker-compose.yml). install.sh / upgrade.sh
+# stage `dist/.../edge-bundles/*.tar.gz` into /opt/ongrid/edge-bundles
+# on the host, which we mount into this container read-only at
+# /usr/share/ongrid/edge-bundles so the manager can read each bundle's
+# .sha256 companion when resolving an upgrade. Bundle bytes themselves
+# are served by nginx out of the existing /edge/ static location;
+# manager-side download is never on the hot path.
+RUN mkdir -p /usr/share/ongrid/edge-bundles
+
+# Knowledge-base git clones land here. Bind-mount this in production
+# to keep them across container restarts.
+RUN mkdir -p /var/lib/ongrid/repos
+WORKDIR /
+
+# 8080 = HTTP API, 9100 = Prometheus /metrics (see ADR-004 §2).
+EXPOSE 8080 9100
+
+# Non-root user. debian:bookworm-slim has groupadd/useradd; pin to the
+# same uid (65532) the old alpine layer used so file-perm semantics on
+# bind-mounted /var/lib/ongrid survive the base switch.
+RUN groupadd --system --gid 65532 nonroot && \
+    useradd  --system --uid 65532 --gid 65532 --no-create-home --shell /usr/sbin/nologin nonroot && \
+    chown -R nonroot:nonroot /var/lib/ongrid
+# HOME defaults to / for useradd --no-create-home; fastembed-go's
+# sugarme/tokenizer dep does $HOME/.cache/tokenizer mkdir and crashes
+# on / (not writable as nonroot). Point HOME at the manager state dir
+# so the tokenizer dir lands somewhere writable.
+ENV HOME=/var/lib/ongrid
+USER nonroot
+ENTRYPOINT ["/ongrid"]

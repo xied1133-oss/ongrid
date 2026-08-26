@@ -1,0 +1,187 @@
+mode: full-node
+
+manager:
+  publicURL: ""
+  tunnelAddr: ""
+  tlsInsecure: false
+
+enrollment:
+  clusterID: ""
+  controllerBootstrapToken: ""
+  nodeBootstrapToken: ""
+
+image:
+  # Leave empty to let Kubernetes select nodes from the image manifest. Set
+  # amd64 or arm64 only when this release intentionally targets one architecture.
+  architecture: ""
+  repository: docker.cnb.cool/ongridio/ongrid-edge
+  tag: ""
+  pullPolicy: IfNotPresent
+
+node:
+  serviceAccountName: ""
+  # hostmetrics exposes node_exporter and the metrics plugin forwards it.
+  # Keep the legacy embedded periodic push off to avoid duplicate node_* series.
+  collectorMode: "off"
+  tolerations:
+    - operator: Exists
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+controller:
+  replicas: 1
+  serviceAccountName: ""
+  inventory:
+    watch: true
+    # Periodic full reconciliation complements watch deltas and repairs drift.
+    fullSyncInterval: 10m
+  metrics:
+    enabled: false
+    endpoint: ""
+    interval: 30s
+    timeout: 15s
+    # Maximum duration of each tunnel batch push. Every batch, including the
+    # final scrape-status batch, receives a fresh timeout.
+    pushTimeout: 30s
+    # Bound total work per target while sending tunnel requests in smaller,
+    # conservatively sized batches.
+    sampleLimit: 250000
+    batchSampleLimit: 10000
+    batchByteLimit: 4194304
+    appDiscovery:
+      enabled: false
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+kubeStateMetrics:
+  enabled: true
+  serviceAccountName: ""
+  image:
+    # Ongrid-maintained mirror used by the default online installation.
+    # Offline installations can override this with their internal registry.
+    repository: docker.cnb.cool/ongridio/ongrid-edge/kube-state-metrics
+    tag: v2.16.0
+    pullPolicy: IfNotPresent
+  port: 8080
+  telemetryPort: 8081
+  collectors: []
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+telemetryConfig:
+  # Controller republishes endpoint/auth/TLS changes to the projected Secret;
+  # Gateway and Scraper then hot-reload without a rollout.
+  refreshInterval: 1m
+
+kubernetesMetrics:
+  # The Chart pre-upgrade hook stops a legacy Controller scrape before the
+  # standalone Scraper starts, so fresh installs and upgrades share one target.
+  mode: scraper
+  # Manual emergency gate. While false, neither the Controller nor the
+  # standalone Scraper reads metrics. Null preserves legacy
+  # controller.metrics.enabled / kubeStateMetrics.enabled values on upgrade.
+  enabled: null
+  # First phase is intentionally single-active; values other than 1 fail
+  # template validation when mode=scraper.
+  replicas: 1
+  serviceAccountName: ""
+  # Null values inherit the corresponding controller.metrics.* setting. This
+  # keeps --reset-then-reuse-values compatible with releases from before the
+  # standalone Scraper existed while allowing an explicit new value to win.
+  endpoint: null
+  interval: null
+  timeout: null
+  pushTimeout: null
+  sampleLimit: null
+  batchSampleLimit: null
+  batchByteLimit: null
+  appDiscovery:
+    enabled: null
+  maxRetries: 3
+  retryBackoff: 500ms
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+upgrade:
+  # A pre-upgrade Helm hook performs any live hand-off that cannot be made
+  # safe by Kubernetes reconciliation order alone. Keep enabled so upgrades
+  # remain one atomic Helm command.
+  migrationHook:
+    enabled: true
+    timeout: 8m
+    backoffLimit: 1
+
+telemetryGateway:
+  # Expose the controller OTLP receiver by default so instrumented workloads
+  # can export cluster-scoped traces, logs, and metrics without extra Helm flags.
+  enabled: true
+  # deployment is the normal isolated data plane. embedded remains an explicit
+  # rollback option and is preserved by --reset-then-reuse-values.
+  mode: deployment
+  replicas: 2
+  serviceAccountName: ""
+  reloadInterval: 10s
+  memoryLimiter:
+    limitMiB: 768
+    spikeLimitMiB: 128
+  batch:
+    sendSize: 2048
+    maxSize: 4096
+  queueSize: 512
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  autoscaling:
+    # Requires the standard metrics.k8s.io API (normally provided by
+    # metrics-server). Disable this flag to fall back to a fixed replica count
+    # on clusters that intentionally do not expose resource metrics.
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 60
+    # Keep the target at no more than 80% of memory_limiter's 640Mi soft limit
+    # (768Mi - 128Mi spike), leaving headroom for HPA tolerance and sampling lag.
+    targetMemoryAverageValue: 512Mi
+    scaleDownStabilizationWindowSeconds: 300
+    # Drain in-memory telemetry gradually after the stabilization window.
+    scaleDownMaxPods: 1
+    scaleDownPeriodSeconds: 60
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  service:
+    type: ClusterIP
+    grpcPort: 4317
+    httpPort: 4318
+
+podSecurity:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  # Configure explicitly only when host files require additional group access.
+  supplementalGroups: []

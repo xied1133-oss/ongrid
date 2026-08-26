@@ -1,0 +1,19 @@
+# ongrid production Prometheus scrape config.
+# Shipped inside the release tarball; mounted into the prometheus container
+# read-only from /opt/ongrid/prometheus/. Only active when the compose stack
+# is started with --profile monitoring.
+
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: ongrid-cloud
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - ongrid:9100
+        labels:
+          service: ongrid
+          env: prod

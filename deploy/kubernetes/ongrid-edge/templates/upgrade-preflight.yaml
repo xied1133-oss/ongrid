@@ -1,0 +1,102 @@
+{{- if and .Release.IsUpgrade (eq (include "ongrid-edge.upgradeMigrationHookEnabled" .) "true") }}
+{{- $upgrade := default dict .Values.upgrade -}}
+{{- $hook := default dict $upgrade.migrationHook -}}
+{{- $hookName := include "ongrid-edge.upgradeHookServiceAccount" . -}}
+{{- $hookAnnotations := dict "helm.sh/hook" "pre-upgrade" "helm.sh/hook-delete-policy" "before-hook-creation,hook-succeeded" -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $hookName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ongrid-edge.labels" . | nindent 4 }}
+    app.kubernetes.io/component: upgrade-preflight
+  annotations:
+    {{- toYaml (merge (dict "helm.sh/hook-weight" "-30") $hookAnnotations) | nindent 4 }}
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $hookName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ongrid-edge.labels" . | nindent 4 }}
+    app.kubernetes.io/component: upgrade-preflight
+  annotations:
+    {{- toYaml (merge (dict "helm.sh/hook-weight" "-25") $hookAnnotations) | nindent 4 }}
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    resourceNames:
+      - {{ printf "%s-controller" (include "ongrid-edge.fullname" .) | quote }}
+      - {{ printf "%s-metrics-scraper" (include "ongrid-edge.fullname" .) | quote }}
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $hookName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ongrid-edge.labels" . | nindent 4 }}
+    app.kubernetes.io/component: upgrade-preflight
+  annotations:
+    {{- toYaml (merge (dict "helm.sh/hook-weight" "-20") $hookAnnotations) | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $hookName }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $hookName }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $hookName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ongrid-edge.labels" . | nindent 4 }}
+    app.kubernetes.io/component: upgrade-preflight
+  annotations:
+    {{- toYaml (merge (dict "helm.sh/hook-weight" "-10") $hookAnnotations) | nindent 4 }}
+spec:
+  backoffLimit: {{ default 1 $hook.backoffLimit }}
+  activeDeadlineSeconds: {{ include "ongrid-edge.durationSeconds" (default "8m" $hook.timeout) }}
+  template:
+    metadata:
+      labels:
+        {{- include "ongrid-edge.labels" . | nindent 8 }}
+        app.kubernetes.io/component: upgrade-preflight
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ $hookName }}
+      {{- with .Values.image.architecture }}
+      nodeSelector:
+        kubernetes.io/arch: {{ . | quote }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: {{ .Values.podSecurity.runAsNonRoot }}
+        runAsUser: {{ .Values.podSecurity.runAsUser }}
+        runAsGroup: {{ .Values.podSecurity.runAsGroup }}
+        fsGroup: {{ .Values.podSecurity.fsGroup }}
+      containers:
+        - name: prepare
+          image: {{ include "ongrid-edge.image" . | quote }}
+          imagePullPolicy: {{ default "IfNotPresent" .Values.image.pullPolicy }}
+          args:
+            - prepare-k8s-upgrade
+            - --namespace={{ .Release.Namespace }}
+            - --controller={{ include "ongrid-edge.fullname" . }}-controller
+            - --metrics-scraper={{ include "ongrid-edge.fullname" . }}-metrics-scraper
+            - --gateway-mode={{ include "ongrid-edge.telemetryGatewayMode" . }}
+            - --metrics-mode={{ include "ongrid-edge.kubernetesMetricsMode" . }}
+            - --timeout={{ default "8m" $hook.timeout }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+{{- end }}

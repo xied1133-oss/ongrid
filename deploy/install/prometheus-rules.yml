@@ -1,0 +1,78 @@
+# Prometheus rule file — ADR-026 manager self-observability.
+# Bind-mounted into the prometheus container at /etc/prometheus/rules.yml
+# by docker-compose.yml (rules.yml column). All rules carry source="self"
+# so the alert UI / outbound notifier can route them differently from
+# customer business rules.
+
+groups:
+  - name: ongrid-self
+    interval: 30s
+    rules:
+
+      - alert: OngridManagerDown
+        expr: up{job="ongrid-manager"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          source: self
+        annotations:
+          summary: "ongrid manager unreachable for 2m"
+          description: "Prometheus can't scrape /metrics on the manager. Check `docker logs ongrid -n 200`, disk space on the data dir, and DB reachability."
+
+      - alert: OngridOrphanWorkerSessions
+        expr: ongrid_chatruntime_worker_sessions{status="running"} > 20
+        for: 5m
+        labels:
+          severity: warning
+          source: self
+        annotations:
+          summary: "> 20 chatruntime worker sessions running for 5m — possible leak"
+          description: "Likely the same shape as the 161-orphan incident on 2026-05-19 (v0.7.44). Inspect /api/v1/aiops/sessions?kind=investigation; if status looks stuck investigate goroutine leak in chatruntime.SpawnWorker."
+
+      - alert: OngridLLMErrorRateHigh
+        expr: |
+          sum(rate(ongrid_llm_calls_total{status!="ok"}[5m]))
+            /
+          sum(rate(ongrid_llm_calls_total[5m]))
+            > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          source: self
+        annotations:
+          summary: "LLM error rate > 10% for 10m"
+          description: "Common causes: provider/model mismatch in system_settings, missing API key, upstream rate-limit. Check `/admin/llm` and inspect manager logs for `llm chat completion failed`."
+
+      - alert: OngridDBPoolSaturated
+        expr: ongrid_db_pool_in_use / ongrid_db_pool_open_connections > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          source: self
+        annotations:
+          summary: "DB pool > 90% utilised for 5m"
+          description: "Tune ONGRID_DB_MAX_OPEN_CONNS upward, or investigate slow queries. Check ongrid_db_pool_wait_count_total rate to see if requests are queueing."
+
+      - alert: OngridAlertEvaluatorStalled
+        expr: sum(rate(ongrid_alert_eval_ticks_total[5m])) == 0
+        for: 10m
+        labels:
+          severity: critical
+          source: self
+        annotations:
+          summary: "Alert evaluator hasn't ticked for 10m — alerts silently lost"
+          description: "Pipeline evaluator goroutine is dead or stuck. Check `docker logs ongrid -n 200 | grep alert-pipeline`."
+
+      - alert: OngridHTTP5xxRateHigh
+        expr: |
+          sum(rate(ongrid_http_requests_total{status="5xx"}[5m]))
+            /
+          sum(rate(ongrid_http_requests_total[5m]))
+            > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          source: self
+        annotations:
+          summary: "API 5xx rate > 5% for 5m"
+          description: "Check which route(s) by `topk(5, sum by (route) (rate(ongrid_http_requests_total{status=\"5xx\"}[5m])))`."

@@ -1,0 +1,169 @@
+syntax = "proto3";
+
+package ongrid.manager.aiops.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/singchia/ongrid/api/gen/manager/aiops/v1;aiopsv1";
+
+// AiopsService 管理对话会话并驱动 OpenAI tool-calling agent 循环（ADR-002）。
+// org_id 从 URL path 与 JWT claims 取（ADR-003）。
+service AiopsService {
+    // CreateChatSession 新开一个对话；scope 限定此 session 能触达的 edge 集合，
+    // 空列表 = 允许 org 内所有 edge。
+    rpc CreateChatSession(CreateChatSessionRequest) returns (CreateChatSessionResponse);
+
+    // ListChatSessions 返回当前 user（或 org 下有权限的）对话列表。
+    rpc ListChatSessions(ListChatSessionsRequest) returns (ListChatSessionsResponse);
+
+    // PostMessage 发送一条用户消息，阻塞等待 agent 收敛到最终答复；
+    // 返回 assistant 终答 + 中间 tool_call 轨迹 + token 用量。
+    rpc PostMessage(PostMessageRequest) returns (PostMessageResponse);
+
+    // StreamMessage 与 PostMessage 同语义，但以 server-streaming 下发 token-by-token 片段，
+    // 供 SSE / WebSocket 的流式 UX 使用。
+    rpc StreamMessage(PostMessageRequest) returns (stream StreamChunk);
+
+    // ListMessages 取某个 session 的历史消息（含 tool 调用）。
+    rpc ListMessages(ListMessagesRequest) returns (ListMessagesResponse);
+}
+
+// ---------- 领域类型 ----------
+
+// ChatRole 与 OpenAI chat/completions 的 role 字段对齐。
+enum ChatRole {
+    CHAT_ROLE_UNSPECIFIED = 0;
+    CHAT_ROLE_SYSTEM = 1;
+    CHAT_ROLE_USER = 2;
+    CHAT_ROLE_ASSISTANT = 3;
+    CHAT_ROLE_TOOL = 4;
+}
+
+// ChatSession 一次对话的元数据；消息单独落 chat_messages。
+message ChatSession {
+    uint64 id = 1 [json_name = "id"];
+    uint64 org_id = 2 [json_name = "org_id"]; // 只读回显
+    uint64 user_id = 3 [json_name = "user_id"]; // 创建者
+    string title = 4 [json_name = "title"];
+    // scope: session 允许触达的 edge_id 白名单；空 = org 内全部。
+    repeated uint64 scope_edge_ids = 5 [json_name = "scope_edge_ids"];
+    google.protobuf.Timestamp created_at = 6 [json_name = "created_at"];
+    google.protobuf.Timestamp updated_at = 7 [json_name = "updated_at"];
+}
+
+// ToolCall 一次 LLM 发起的工具调用（OpenAI tool_calls 的投影）。
+message ToolCall {
+    string id = 1 [json_name = "id"]; // OpenAI tool_call_id
+    string tool_name = 2 [json_name = "tool_name"];
+    string arguments_json = 3 [json_name = "arguments_json"]; // 原样 JSON 字符串
+}
+
+// ToolResult tool 执行结果，作为 role=TOOL 消息回喂 LLM。
+message ToolResult {
+    string tool_call_id = 1 [json_name = "tool_call_id"];
+    string tool_name = 2 [json_name = "tool_name"];
+    string result_json = 3 [json_name = "result_json"];
+    string error = 4 [json_name = "error"]; // 非空表示工具执行失败
+}
+
+// ChatMessage 一条消息，兼容 user / assistant / tool / system。
+message ChatMessage {
+    uint64 id = 1 [json_name = "id"];
+    uint64 session_id = 2 [json_name = "session_id"];
+    ChatRole role = 3 [json_name = "role"];
+    string content = 4 [json_name = "content"];
+    // role=ASSISTANT 时可能携带 tool_calls；role=TOOL 时 tool_call_id / tool_name 必填。
+    repeated ToolCall tool_calls = 5 [json_name = "tool_calls"];
+    string tool_call_id = 6 [json_name = "tool_call_id"];
+    string tool_name = 7 [json_name = "tool_name"];
+    uint32 prompt_tokens = 8 [json_name = "prompt_tokens"];
+    uint32 completion_tokens = 9 [json_name = "completion_tokens"];
+    google.protobuf.Timestamp created_at = 10 [json_name = "created_at"];
+}
+
+// TokenUsage 单次 agent 循环总 token 消耗（跨多轮 LLM 调用累加）。
+message TokenUsage {
+    uint32 prompt_tokens = 1 [json_name = "prompt_tokens"];
+    uint32 completion_tokens = 2 [json_name = "completion_tokens"];
+    uint32 total_tokens = 3 [json_name = "total_tokens"];
+}
+
+// ---------- RPC 消息 ----------
+
+message CreateChatSessionRequest {
+    string title = 1 [json_name = "title"];
+    // scope: 空 = org 内全部 edge。
+    repeated uint64 scope_edge_ids = 2 [json_name = "scope_edge_ids"];
+}
+
+message CreateChatSessionResponse {
+    ChatSession session = 1 [json_name = "session"];
+}
+
+message ListChatSessionsRequest {
+    int32 page = 1 [json_name = "page"];
+    int32 page_size = 2 [json_name = "page_size"];
+}
+
+message ListChatSessionsResponse {
+    repeated ChatSession sessions = 1 [json_name = "sessions"];
+    int32 total = 2 [json_name = "total"];
+}
+
+message PostMessageRequest {
+    uint64 session_id = 1 [json_name = "session_id"];
+    string text = 2 [json_name = "text"];
+}
+
+message PostMessageResponse {
+    // 终答（assistant 最后一条无 tool_calls 的消息）。
+    ChatMessage reply = 1 [json_name = "reply"];
+    // 中间走过的 tool 调用 + 结果（按时间顺序）。
+    repeated ToolCall tool_calls = 2 [json_name = "tool_calls"];
+    repeated ToolResult tool_results = 3 [json_name = "tool_results"];
+    TokenUsage usage = 4 [json_name = "usage"];
+    uint32 iterations = 5 [json_name = "iterations"]; // agent loop 实际轮次
+}
+
+// StreamChunk StreamMessage 下发的单个片段；四种互斥形态。
+message StreamChunk {
+    oneof payload {
+        // 新增一截 assistant 文本。
+        ContentDelta content_delta = 1;
+        // LLM 宣布要调用一个 tool。
+        ToolCallStart tool_call_start = 2;
+        // tool 执行结果已就绪（喂回 LLM 继续）。
+        ToolCallResult tool_call_result = 3;
+        // 整个会话收敛完毕，携带最终用量。
+        Done done = 4;
+    }
+}
+
+message ContentDelta {
+    string text = 1 [json_name = "text"];
+}
+
+message ToolCallStart {
+    ToolCall tool_call = 1 [json_name = "tool_call"];
+}
+
+message ToolCallResult {
+    ToolResult tool_result = 1 [json_name = "tool_result"];
+}
+
+message Done {
+    TokenUsage usage = 1 [json_name = "usage"];
+    uint32 iterations = 2 [json_name = "iterations"];
+    uint64 final_message_id = 3 [json_name = "final_message_id"];
+}
+
+message ListMessagesRequest {
+    uint64 session_id = 1 [json_name = "session_id"];
+    // 游标（message_id）；留空从头读。
+    uint64 after_id = 2 [json_name = "after_id"];
+    int32 limit = 3 [json_name = "limit"];
+}
+
+message ListMessagesResponse {
+    repeated ChatMessage messages = 1 [json_name = "messages"];
+}

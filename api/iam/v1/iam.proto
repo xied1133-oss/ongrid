@@ -1,0 +1,170 @@
+syntax = "proto3";
+
+package ongrid.iam.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/singchia/ongrid/api/gen/iam/v1;iamv1";
+
+// IamService 负责登录、JWT 签发、Org / User / Membership 管理。
+// 所有 RPC 都不在请求体里带 org_id / user_id — 那些来自 JWT claims 与 URL path，
+// 由 internal/pkg/auth middleware 注入 context.Context（见 ADR-003）。
+service IamService {
+    // Register 用邮箱 + 密码注册；同步创建隐式个人 org + owner membership，
+    // 返回一对 access / refresh token（claims 里 org_id 指向新建的个人 org）。
+    rpc Register(RegisterRequest) returns (RegisterResponse);
+
+    // Login 用邮箱 + 密码换取 access / refresh token。
+    // 如果用户属于多个 org，token 默认绑定上次选择的 org；前端可随后 SwitchOrg。
+    rpc Login(LoginRequest) returns (LoginResponse);
+
+    // Refresh 用 refresh_token 换一对新的 access / refresh token。
+    rpc Refresh(RefreshRequest) returns (RefreshResponse);
+
+    // GetSelf 返回当前 user + 其所属的全部 membership（含 org 快照）。
+    rpc GetSelf(GetSelfRequest) returns (GetSelfResponse);
+
+    // CreateOrg 创建一个新 org，调用者自动成为 owner。
+    rpc CreateOrg(CreateOrgRequest) returns (CreateOrgResponse);
+
+    // ListOrgs 返回调用者所属的全部 org。
+    rpc ListOrgs(ListOrgsRequest) returns (ListOrgsResponse);
+
+    // InviteMember 把一个 email 邀请到指定 org（org_id 从 URL path 取，不在 body 中）。
+    rpc InviteMember(InviteMemberRequest) returns (InviteMemberResponse);
+
+    // ListMembers 返回给定 org 的 membership 列表（org_id 从 URL path 取）。
+    rpc ListMembers(ListMembersRequest) returns (ListMembersResponse);
+
+    // SwitchOrg 用 refresh_token + 目标 org_id 换取一个 claims 绑定新 org 的 access token；
+    // 目标 org 必须是当前 user 的成员，否则 403。
+    rpc SwitchOrg(SwitchOrgRequest) returns (SwitchOrgResponse);
+}
+
+// ---------- 领域类型 ----------
+
+// Org 组织 — 所有业务资源的一级所有者。
+message Org {
+    uint64 id = 1 [json_name = "id"];
+    string name = 2 [json_name = "name"]; // 展示名
+    string slug = 3 [json_name = "slug"]; // URL 友好短名（全局唯一）
+    string plan = 4 [json_name = "plan"]; // free / pro / enterprise
+    bool is_personal = 5 [json_name = "is_personal"]; // 注册自动建的个人 org
+    google.protobuf.Timestamp created_at = 6 [json_name = "created_at"];
+}
+
+// User 登录主体。
+message User {
+    uint64 id = 1 [json_name = "id"];
+    string email = 2 [json_name = "email"];
+    google.protobuf.Timestamp created_at = 3 [json_name = "created_at"];
+}
+
+// Membership 把 user 挂到 org 的多对多关系 + 角色。
+message Membership {
+    uint64 id = 1 [json_name = "id"];
+    uint64 org_id = 2 [json_name = "org_id"]; // 响应中可回显（只读）
+    uint64 user_id = 3 [json_name = "user_id"];
+    string role = 4 [json_name = "role"]; // owner / admin / member / readonly
+    google.protobuf.Timestamp created_at = 5 [json_name = "created_at"];
+    Org org = 6 [json_name = "org"]; // 可选 hydrate
+    User user = 7 [json_name = "user"]; // 可选 hydrate
+}
+
+// TokenPair access + refresh token 对。
+message TokenPair {
+    string access_token = 1 [json_name = "access_token"];
+    string refresh_token = 2 [json_name = "refresh_token"];
+    google.protobuf.Timestamp access_expires_at = 3 [json_name = "access_expires_at"];
+    google.protobuf.Timestamp refresh_expires_at = 4 [json_name = "refresh_expires_at"];
+}
+
+// ---------- RPC 消息 ----------
+
+message RegisterRequest {
+    string email = 1 [json_name = "email"];
+    string password = 2 [json_name = "password"];
+}
+
+message RegisterResponse {
+    User user = 1 [json_name = "user"];
+    Org personal_org = 2 [json_name = "personal_org"];
+    TokenPair tokens = 3 [json_name = "tokens"];
+}
+
+message LoginRequest {
+    string email = 1 [json_name = "email"];
+    string password = 2 [json_name = "password"];
+}
+
+message LoginResponse {
+    User user = 1 [json_name = "user"];
+    TokenPair tokens = 2 [json_name = "tokens"];
+    // 当前 token 绑定的 org；首次登录时指向用户的默认 / 上次使用 org。
+    Org active_org = 3 [json_name = "active_org"];
+}
+
+message RefreshRequest {
+    string refresh_token = 1 [json_name = "refresh_token"];
+}
+
+message RefreshResponse {
+    TokenPair tokens = 1 [json_name = "tokens"];
+}
+
+message GetSelfRequest {}
+
+message GetSelfResponse {
+    User user = 1 [json_name = "user"];
+    repeated Membership memberships = 2 [json_name = "memberships"];
+}
+
+message CreateOrgRequest {
+    string name = 1 [json_name = "name"];
+    string slug = 2 [json_name = "slug"];
+}
+
+message CreateOrgResponse {
+    Org org = 1 [json_name = "org"];
+    // 调用者作为 owner 的 membership。
+    Membership membership = 2 [json_name = "membership"];
+}
+
+message ListOrgsRequest {}
+
+message ListOrgsResponse {
+    repeated Org orgs = 1 [json_name = "orgs"];
+}
+
+message InviteMemberRequest {
+    // 注意：org_id 从 URL path 取，不在请求体里由用户提供。
+    string email = 1 [json_name = "email"];
+    string role = 2 [json_name = "role"]; // owner / admin / member / readonly
+}
+
+message InviteMemberResponse {
+    Membership membership = 1 [json_name = "membership"];
+    // 如果被邀请人还没注册，后端生成的一次性邀请链接 token（可选）。
+    string invite_token = 2 [json_name = "invite_token"];
+}
+
+message ListMembersRequest {
+    // org_id 从 URL path 取。
+    int32 page = 1 [json_name = "page"];
+    int32 page_size = 2 [json_name = "page_size"];
+}
+
+message ListMembersResponse {
+    repeated Membership memberships = 1 [json_name = "memberships"];
+    int32 total = 2 [json_name = "total"];
+}
+
+message SwitchOrgRequest {
+    string refresh_token = 1 [json_name = "refresh_token"];
+    uint64 target_org_id = 2 [json_name = "target_org_id"];
+}
+
+message SwitchOrgResponse {
+    TokenPair tokens = 1 [json_name = "tokens"];
+    Org active_org = 2 [json_name = "active_org"];
+}

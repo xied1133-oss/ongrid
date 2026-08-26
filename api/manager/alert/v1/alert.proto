@@ -1,0 +1,87 @@
+syntax = "proto3";
+
+package ongrid.manager.alert.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/singchia/ongrid/api/gen/manager/alert/v1;alertv1";
+
+service AlertService {
+    rpc ListIncidents(ListIncidentsRequest) returns (ListIncidentsResponse);
+    rpc GetIncident(GetIncidentRequest) returns (GetIncidentResponse);
+    rpc AcknowledgeIncident(AcknowledgeIncidentRequest) returns (AcknowledgeIncidentResponse);
+    rpc ResolveIncident(ResolveIncidentRequest) returns (ResolveIncidentResponse);
+}
+
+enum AlertSeverity {
+    ALERT_SEVERITY_UNSPECIFIED = 0;
+    ALERT_SEVERITY_INFO = 1;
+    ALERT_SEVERITY_WARNING = 2;
+    ALERT_SEVERITY_CRITICAL = 3;
+}
+
+enum AlertIncidentStatus {
+    ALERT_INCIDENT_STATUS_UNSPECIFIED = 0;
+    ALERT_INCIDENT_STATUS_OPEN = 1;
+    ALERT_INCIDENT_STATUS_ACKNOWLEDGED = 2;
+    ALERT_INCIDENT_STATUS_SILENCED = 3;
+    ALERT_INCIDENT_STATUS_RESOLVED = 4;
+}
+
+message AlertIncident {
+    uint64 id = 1 [json_name = "id"];
+    string rule_key = 2 [json_name = "rule_key"];
+    string rule_name = 3 [json_name = "rule_name"];
+    AlertSeverity severity = 4 [json_name = "severity"];
+    AlertIncidentStatus status = 5 [json_name = "status"];
+    string summary = 6 [json_name = "summary"];
+    string target_type = 7 [json_name = "target_type"];
+    string target_id = 8 [json_name = "target_id"];
+    string target_name = 9 [json_name = "target_name"];
+    string runbook_url = 10 [json_name = "runbook_url"];
+    google.protobuf.Timestamp fired_at = 11 [json_name = "fired_at"];
+    google.protobuf.Timestamp updated_at = 12 [json_name = "updated_at"];
+    google.protobuf.Timestamp acknowledged_at = 13 [json_name = "acknowledged_at"];
+    google.protobuf.Timestamp resolved_at = 14 [json_name = "resolved_at"];
+}
+
+message ListIncidentsRequest {
+    string status_filter = 1 [json_name = "status_filter"];
+    string severity_filter = 2 [json_name = "severity_filter"];
+    string query = 3 [json_name = "query"];
+    int32 page = 4 [json_name = "page"];
+    int32 page_size = 5 [json_name = "page_size"];
+}
+
+message ListIncidentsResponse {
+    repeated AlertIncident incidents = 1 [json_name = "incidents"];
+    int32 total = 2 [json_name = "total"];
+    int32 page = 3 [json_name = "page"];
+    int32 page_size = 4 [json_name = "page_size"];
+}
+
+message GetIncidentRequest {
+    uint64 id = 1 [json_name = "id"];
+}
+
+message GetIncidentResponse {
+    AlertIncident incident = 1 [json_name = "incident"];
+}
+
+message AcknowledgeIncidentRequest {
+    uint64 id = 1 [json_name = "id"];
+    string note = 2 [json_name = "note"];
+}
+
+message AcknowledgeIncidentResponse {
+    AlertIncident incident = 1 [json_name = "incident"];
+}
+
+message ResolveIncidentRequest {
+    uint64 id = 1 [json_name = "id"];
+    string note = 2 [json_name = "note"];
+}
+
+message ResolveIncidentResponse {
+    AlertIncident incident = 1 [json_name = "incident"];
+}

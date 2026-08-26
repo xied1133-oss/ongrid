@@ -1,0 +1,117 @@
+{{- $enabled := eq (include "ongrid-edge.telemetryGatewayEnabled" .) "true" -}}
+{{- $mode := include "ongrid-edge.telemetryGatewayMode" . -}}
+{{- if and $enabled (eq $mode "deployment") }}
+{{- $gw := default dict .Values.telemetryGateway -}}
+{{- $pdb := default dict $gw.podDisruptionBudget -}}
+{{- $autoscaling := default dict $gw.autoscaling -}}
+{{- $memoryLimiter := default dict $gw.memoryLimiter -}}
+{{- if or (not (hasKey $pdb "enabled")) $pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "ongrid-edge.telemetryGatewayName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ongrid-edge.labels" . | nindent 4 }}
+    app.kubernetes.io/component: telemetry-gateway
+spec:
+  minAvailable: {{ default 1 $pdb.minAvailable }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "ongrid-edge.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: telemetry-gateway
+{{- end }}
+{{- if default false $autoscaling.enabled }}
+{{- $minReplicas := int (default 2 $autoscaling.minReplicas) -}}
+{{- $maxReplicas := int (default 10 $autoscaling.maxReplicas) -}}
+{{- $targetCPU := 60 -}}
+{{- if hasKey $autoscaling "targetCPUUtilizationPercentage" -}}
+{{- $targetCPU = int $autoscaling.targetCPUUtilizationPercentage -}}
+{{- end -}}
+{{- $targetMemory := default "512Mi" $autoscaling.targetMemoryAverageValue -}}
+{{- $targetMemoryMiB := int (include "ongrid-edge.memoryQuantityMiB" $targetMemory) -}}
+{{- $softLimitMiB := sub (int (default 768 $memoryLimiter.limitMiB)) (int (default 128 $memoryLimiter.spikeLimitMiB)) -}}
+{{- $maxTargetMemoryMiB := div (mul $softLimitMiB 80) 100 -}}
+{{- $scaleDownWindow := 300 -}}
+{{- if hasKey $autoscaling "scaleDownStabilizationWindowSeconds" -}}
+{{- $scaleDownWindow = int $autoscaling.scaleDownStabilizationWindowSeconds -}}
+{{- end -}}
+{{- $scaleDownMaxPods := 1 -}}
+{{- if hasKey $autoscaling "scaleDownMaxPods" -}}
+{{- $scaleDownMaxPods = int $autoscaling.scaleDownMaxPods -}}
+{{- end -}}
+{{- $scaleDownPeriod := 60 -}}
+{{- if hasKey $autoscaling "scaleDownPeriodSeconds" -}}
+{{- $scaleDownPeriod = int $autoscaling.scaleDownPeriodSeconds -}}
+{{- end -}}
+{{- if lt $minReplicas 2 -}}
+{{- fail "telemetryGateway.autoscaling.minReplicas must be at least 2" -}}
+{{- end -}}
+{{- if lt $maxReplicas $minReplicas -}}
+{{- fail "telemetryGateway.autoscaling.maxReplicas must be greater than or equal to minReplicas" -}}
+{{- end -}}
+{{- if or (lt $targetCPU 1) (gt $targetCPU 100) -}}
+{{- fail "telemetryGateway.autoscaling.targetCPUUtilizationPercentage must be between 1 and 100" -}}
+{{- end -}}
+{{- if or (lt $targetMemoryMiB 1) (gt $targetMemoryMiB $maxTargetMemoryMiB) -}}
+{{- fail "telemetryGateway.autoscaling.targetMemoryAverageValue must be positive and at most 80% of the memory_limiter soft limit" -}}
+{{- end -}}
+{{- if or (lt $scaleDownWindow 0) (gt $scaleDownWindow 3600) -}}
+{{- fail "telemetryGateway.autoscaling.scaleDownStabilizationWindowSeconds must be between 0 and 3600" -}}
+{{- end -}}
+{{- if lt $scaleDownMaxPods 1 -}}
+{{- fail "telemetryGateway.autoscaling.scaleDownMaxPods must be at least 1" -}}
+{{- end -}}
+{{- if or (lt $scaleDownPeriod 1) (gt $scaleDownPeriod 1800) -}}
+{{- fail "telemetryGateway.autoscaling.scaleDownPeriodSeconds must be between 1 and 1800" -}}
+{{- end -}}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "ongrid-edge.telemetryGatewayName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ongrid-edge.labels" . | nindent 4 }}
+    app.kubernetes.io/component: telemetry-gateway
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "ongrid-edge.telemetryGatewayName" . }}
+  minReplicas: {{ $minReplicas }}
+  maxReplicas: {{ $maxReplicas }}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      selectPolicy: Max
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+        - type: Pods
+          value: 4
+          periodSeconds: 15
+    scaleDown:
+      stabilizationWindowSeconds: {{ $scaleDownWindow }}
+      selectPolicy: Max
+      policies:
+        - type: Pods
+          value: {{ $scaleDownMaxPods }}
+          periodSeconds: {{ $scaleDownPeriod }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $targetCPU }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: AverageValue
+          averageValue: {{ $targetMemory }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,316 @@
+syntax = "proto3";
+
+package ongrid.manager.edge.v1;
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/singchia/ongrid/api/gen/manager/edge/v1;edgev1";
+
+// EdgeService 管理一个 org 下的 edge 设备：注册 / 列表 / 详情 / 删除 / 轮换密钥。
+// org_id 从 URL path（/api/v1/orgs/:org_id/edges/...）与 JWT claims 取，
+// 不在请求体里由用户提供（ADR-003）。
+service EdgeService {
+    // CreateEdge 签发一对新的 AccessKey / SecretKey；SecretKey 仅此响应体中明文返回一次，
+    // 服务端只存 Argon2id 哈希（ADR-001 + ADR-003）。
+    rpc CreateEdge(CreateEdgeRequest) returns (CreateEdgeResponse);
+
+    // ListEdges 分页列出 org 下的 edge，可按在线状态过滤。
+    rpc ListEdges(ListEdgesRequest) returns (ListEdgesResponse);
+
+    // GetEdge 取单个 edge 详情。
+    rpc GetEdge(GetEdgeRequest) returns (GetEdgeResponse);
+
+    // DeleteEdge 永久删除 edge 记录（连带终止该 edge 的在线隧道连接）。
+    rpc DeleteEdge(DeleteEdgeRequest) returns (google.protobuf.Empty);
+
+    // RotateSecret 为现有 edge 重新生成 SecretKey；旧 secret 立刻失效。
+    rpc RotateSecret(RotateSecretRequest) returns (RotateSecretResponse);
+
+    // CreateEnrollmentProfile 创建一条可复用的非 Kubernetes Edge 批量安装配置。
+    // enrollment_token 仅在此次响应中明文返回。
+    rpc CreateEnrollmentProfile(CreateEnrollmentProfileRequest) returns (CreateEnrollmentProfileResponse);
+
+    // ListEnrollmentProfiles 列出批量安装配置；永不返回 enrollment_token。
+    rpc ListEnrollmentProfiles(ListEnrollmentProfilesRequest) returns (ListEnrollmentProfilesResponse);
+
+    // DeleteEnrollmentProfile 删除安装配置并使尚未领取的命令立即失效；
+    // 已领取的独立 Edge 凭证和设备不受影响。
+    rpc DeleteEnrollmentProfile(DeleteEnrollmentProfileRequest) returns (google.protobuf.Empty);
+
+    // RevokeEnrollmentProfile 仅为旧客户端兼容保留，新客户端应直接删除安装配置。
+    rpc RevokeEnrollmentProfile(RevokeEnrollmentProfileRequest) returns (google.protobuf.Empty) {
+        option deprecated = true;
+    }
+
+    // EnrollEdge 使用安装令牌为当前主机领取一对独立 Edge 凭证。
+    // HTTP 层使用 Authorization: Bearer <enrollment_token>，不使用用户 JWT。
+    rpc EnrollEdge(EnrollEdgeRequest) returns (EnrollEdgeResponse);
+
+    // CreateUpgradeJob 创建一条由 Manager 后台持续执行和确认的批量升级任务。
+    rpc CreateUpgradeJob(CreateUpgradeJobRequest) returns (CreateUpgradeJobResponse);
+
+    // ListUpgradeJobs 分页列出升级任务，可按普通设备集群过滤。
+    rpc ListUpgradeJobs(ListUpgradeJobsRequest) returns (ListUpgradeJobsResponse);
+
+    // GetUpgradeJob 返回任务汇总和逐设备执行明细。
+    rpc GetUpgradeJob(GetUpgradeJobRequest) returns (GetUpgradeJobResponse);
+
+    // RetryUpgradeJob 仅重试任务中失败或超时的设备。
+    rpc RetryUpgradeJob(RetryUpgradeJobRequest) returns (RetryUpgradeJobResponse);
+}
+
+// ---------- 领域类型 ----------
+
+// EdgeStatus edge 当前在线状态。
+enum EdgeStatus {
+    EDGE_STATUS_UNSPECIFIED = 0;
+    EDGE_STATUS_ONLINE = 1;
+    EDGE_STATUS_OFFLINE = 2;
+}
+
+// EnrollmentAssignmentMode 决定安装配置是否写入拓扑集群归属。
+enum EnrollmentAssignmentMode {
+    ENROLLMENT_ASSIGNMENT_MODE_UNSPECIFIED = 0;
+    ENROLLMENT_ASSIGNMENT_MODE_BATCH_ONLY = 1;
+    ENROLLMENT_ASSIGNMENT_MODE_CLUSTER = 2;
+}
+
+enum UpgradeJobStatus {
+    UPGRADE_JOB_STATUS_UNSPECIFIED = 0;
+    UPGRADE_JOB_STATUS_QUEUED = 1;
+    UPGRADE_JOB_STATUS_RUNNING = 2;
+    UPGRADE_JOB_STATUS_SUCCEEDED = 3;
+    UPGRADE_JOB_STATUS_PARTIAL_FAILED = 4;
+    UPGRADE_JOB_STATUS_FAILED = 5;
+}
+
+enum UpgradeJobItemStatus {
+    UPGRADE_JOB_ITEM_STATUS_UNSPECIFIED = 0;
+    UPGRADE_JOB_ITEM_STATUS_QUEUED = 1;
+    UPGRADE_JOB_ITEM_STATUS_DISPATCHING = 2;
+    UPGRADE_JOB_ITEM_STATUS_WAITING_REGISTRATION = 3;
+    UPGRADE_JOB_ITEM_STATUS_SUCCEEDED = 4;
+    UPGRADE_JOB_ITEM_STATUS_FAILED = 5;
+    UPGRADE_JOB_ITEM_STATUS_TIMED_OUT = 6;
+    UPGRADE_JOB_ITEM_STATUS_SKIPPED = 7;
+}
+
+// HostInfo edge 汇报的静态主机信息（随 register_edge 上来）。
+message HostInfo {
+    string hostname = 1 [json_name = "hostname"];
+    string os = 2 [json_name = "os"]; // linux / darwin / ...
+    string arch = 3 [json_name = "arch"]; // amd64 / arm64
+    string kernel_version = 4 [json_name = "kernel_version"];
+    uint32 cpu_count = 5 [json_name = "cpu_count"];
+    uint64 mem_total_bytes = 6 [json_name = "mem_total_bytes"];
+}
+
+// Edge 云端记录的 edge 设备。
+message Edge {
+    uint64 id = 1 [json_name = "id"];
+    uint64 org_id = 2 [json_name = "org_id"]; // 响应中只读回显
+    string name = 3 [json_name = "name"]; // 用户起的展示名
+    EdgeStatus status = 4 [json_name = "status"];
+    google.protobuf.Timestamp last_seen_at = 5 [json_name = "last_seen_at"];
+    HostInfo host_info = 6 [json_name = "host_info"];
+    google.protobuf.Timestamp created_at = 7 [json_name = "created_at"];
+    // AccessKey 可在列表 / 详情中回显（非敏感，握手公开用）。SecretKey 绝不回显。
+    string access_key = 8 [json_name = "access_key"];
+}
+
+// ---------- RPC 消息 ----------
+
+message CreateEdgeRequest {
+    string name = 1 [json_name = "name"];
+}
+
+message CreateEdgeResponse {
+    Edge edge = 1 [json_name = "edge"];
+    // 注意：仅此次响应明文返回，客户端必须自行保存；后端只留 Argon2id hash。
+    string access_key = 2 [json_name = "access_key"];
+    string secret_key = 3 [json_name = "secret_key"];
+}
+
+// ListEdgesRequest 过滤条件 + 分页。
+message ListEdgesRequest {
+    // status_filter: online / offline / all（空字符串 = all）。
+    string status_filter = 1 [json_name = "status_filter"];
+    int32 page = 2 [json_name = "page"];
+    int32 page_size = 3 [json_name = "page_size"];
+    // 可选按 name 模糊搜索。
+    string name = 4 [json_name = "name"];
+}
+
+message ListEdgesResponse {
+    repeated Edge edges = 1 [json_name = "edges"];
+    int32 total = 2 [json_name = "total"];
+    int32 page = 3 [json_name = "page"];
+    int32 page_size = 4 [json_name = "page_size"];
+}
+
+message GetEdgeRequest {
+    uint64 id = 1 [json_name = "id"];
+}
+
+message GetEdgeResponse {
+    Edge edge = 1 [json_name = "edge"];
+}
+
+message DeleteEdgeRequest {
+    uint64 id = 1 [json_name = "id"];
+}
+
+message RotateSecretRequest {
+    uint64 id = 1 [json_name = "id"];
+}
+
+message RotateSecretResponse {
+    // 新签发的 secret_key，仅此次响应明文返回。access_key 不变。
+    string secret_key = 1 [json_name = "secret_key"];
+    google.protobuf.Timestamp rotated_at = 2 [json_name = "rotated_at"];
+}
+
+message EnrollmentProfile {
+    uint64 id = 1 [json_name = "id"];
+    string name = 2 [json_name = "name"];
+    EnrollmentAssignmentMode assignment_mode = 3 [json_name = "assignment_mode"];
+    optional uint64 cluster_node_id = 4 [json_name = "cluster_node_id"];
+    google.protobuf.Timestamp expires_at = 5 [json_name = "expires_at"];
+    int32 max_uses = 6 [json_name = "max_uses"];
+    int32 used_count = 7 [json_name = "used_count"];
+    string status = 8 [json_name = "status"]; // active / revoked / expired / exhausted
+    google.protobuf.Timestamp created_at = 9 [json_name = "created_at"];
+}
+
+message CreateEnrollmentProfileRequest {
+    string name = 1 [json_name = "name"];
+    EnrollmentAssignmentMode assignment_mode = 2 [json_name = "assignment_mode"];
+    optional uint64 cluster_node_id = 3 [json_name = "cluster_node_id"];
+    int32 expires_in_hours = 4 [json_name = "expires_in_hours"];
+    int32 max_uses = 5 [json_name = "max_uses"];
+}
+
+message CreateEnrollmentProfileResponse {
+    EnrollmentProfile profile = 1 [json_name = "profile"];
+    string enrollment_token = 2 [json_name = "enrollment_token"];
+}
+
+message ListEnrollmentProfilesRequest {
+    int32 page = 1 [json_name = "page"];
+    int32 page_size = 2 [json_name = "page_size"];
+}
+
+message ListEnrollmentProfilesResponse {
+    repeated EnrollmentProfile profiles = 1 [json_name = "profiles"];
+    int32 total = 2 [json_name = "total"];
+    int32 page = 3 [json_name = "page"];
+    int32 page_size = 4 [json_name = "page_size"];
+}
+
+message RevokeEnrollmentProfileRequest {
+    uint64 id = 1 [json_name = "id"];
+}
+
+message DeleteEnrollmentProfileRequest {
+    uint64 id = 1 [json_name = "id"];
+}
+
+message EnrollEdgeRequest {
+    HostInfo host_info = 1 [json_name = "host_info"];
+    string agent_version = 2 [json_name = "agent_version"];
+}
+
+message EnrollEdgeResponse {
+    uint64 edge_id = 1 [json_name = "edge_id"];
+    string access_key = 2 [json_name = "access_key"];
+    string secret_key = 3 [json_name = "secret_key"];
+    string cloud_addr = 4 [json_name = "cloud_addr"];
+    string manager_public_url = 5 [json_name = "manager_public_url"];
+}
+
+message UpgradeJob {
+    uint64 id = 1 [json_name = "id"];
+    optional uint64 cluster_node_id = 2 [json_name = "cluster_node_id"];
+    string target_version = 3 [json_name = "target_version"];
+    UpgradeJobStatus status = 4 [json_name = "status"];
+    bool force_reinstall = 5 [json_name = "force_reinstall"];
+    int32 total = 6 [json_name = "total"];
+    int32 succeeded = 7 [json_name = "succeeded"];
+    int32 failed = 8 [json_name = "failed"];
+    int32 skipped = 9 [json_name = "skipped"];
+    int32 pending = 10 [json_name = "pending"];
+    optional uint64 created_by = 11 [json_name = "created_by"];
+    google.protobuf.Timestamp started_at = 12 [json_name = "started_at"];
+    google.protobuf.Timestamp finished_at = 13 [json_name = "finished_at"];
+    google.protobuf.Timestamp created_at = 14 [json_name = "created_at"];
+    google.protobuf.Timestamp updated_at = 15 [json_name = "updated_at"];
+    int32 batch_size = 16 [json_name = "batch_size"];
+    int32 current_batch = 17 [json_name = "current_batch"];
+    int32 total_batches = 18 [json_name = "total_batches"];
+}
+
+message UpgradeJobItem {
+    uint64 id = 1 [json_name = "id"];
+    uint64 job_id = 2 [json_name = "job_id"];
+    uint64 edge_id = 3 [json_name = "edge_id"];
+    optional uint64 device_id = 4 [json_name = "device_id"];
+    string edge_name = 5 [json_name = "edge_name"];
+    string device_name = 6 [json_name = "device_name"];
+    string arch = 7 [json_name = "arch"];
+    string from_version = 8 [json_name = "from_version"];
+    string target_version = 9 [json_name = "target_version"];
+    UpgradeJobItemStatus status = 10 [json_name = "status"];
+    int32 attempt = 11 [json_name = "attempt"];
+    string error_code = 12 [json_name = "error_code"];
+    string error_message = 13 [json_name = "error_message"];
+    string observed_version = 14 [json_name = "observed_version"];
+    google.protobuf.Timestamp baseline_registered_at = 15 [json_name = "baseline_registered_at"];
+    google.protobuf.Timestamp observed_registered_at = 16 [json_name = "observed_registered_at"];
+    google.protobuf.Timestamp started_at = 17 [json_name = "started_at"];
+    google.protobuf.Timestamp finished_at = 18 [json_name = "finished_at"];
+    google.protobuf.Timestamp created_at = 19 [json_name = "created_at"];
+    google.protobuf.Timestamp updated_at = 20 [json_name = "updated_at"];
+    int32 batch_number = 21 [json_name = "batch_number"];
+}
+
+message CreateUpgradeJobRequest {
+    repeated uint64 edge_ids = 1 [json_name = "edge_ids"];
+    string target_version = 2 [json_name = "target_version"];
+    optional uint64 cluster_node_id = 3 [json_name = "cluster_node_id"];
+    bool force_reinstall = 4 [json_name = "force_reinstall"];
+}
+
+message CreateUpgradeJobResponse {
+    UpgradeJob job = 1 [json_name = "job"];
+}
+
+message ListUpgradeJobsRequest {
+    optional uint64 cluster_node_id = 1 [json_name = "cluster_node_id"];
+    int32 page = 2 [json_name = "page"];
+    int32 page_size = 3 [json_name = "page_size"];
+}
+
+message ListUpgradeJobsResponse {
+    repeated UpgradeJob jobs = 1 [json_name = "jobs"];
+    int32 total = 2 [json_name = "total"];
+    int32 page = 3 [json_name = "page"];
+    int32 page_size = 4 [json_name = "page_size"];
+}
+
+message GetUpgradeJobRequest {
+    uint64 id = 1 [json_name = "id"];
+}
+
+message GetUpgradeJobResponse {
+    UpgradeJob job = 1 [json_name = "job"];
+    repeated UpgradeJobItem items = 2 [json_name = "items"];
+}
+
+message RetryUpgradeJobRequest {
+    uint64 id = 1 [json_name = "id"];
+}
+
+message RetryUpgradeJobResponse {
+    UpgradeJob job = 1 [json_name = "job"];
+}
