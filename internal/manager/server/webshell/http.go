@@ -30,13 +30,14 @@ import (
 	"github.com/gorilla/websocket"
 	"golang.org/x/crypto/ssh"
 
-	bizwebshell "github.com/ongridio/ongrid/internal/manager/biz/webshell"
 	devicebiz "github.com/ongridio/ongrid/internal/manager/biz/device"
 	edgebiz "github.com/ongridio/ongrid/internal/manager/biz/edge"
+	bizwebshell "github.com/ongridio/ongrid/internal/manager/biz/webshell"
 	edgemodel "github.com/ongridio/ongrid/internal/manager/model/edge"
 	wsmodel "github.com/ongridio/ongrid/internal/manager/model/webshell"
 	"github.com/ongridio/ongrid/internal/pkg/errs"
 	"github.com/ongridio/ongrid/internal/pkg/tenantctx"
+	"github.com/ongridio/ongrid/internal/pkg/tunnel"
 )
 
 // AuthzMW is the narrow casbin middleware contract.
@@ -50,6 +51,12 @@ type Streamer interface {
 	OpenStream(ctx context.Context, edgeID uint64) (io.ReadWriteCloser, error)
 }
 
+// Caller is the narrow manager→edge RPC surface (agent shell mode).
+// *managersvcfb.Client satisfies it.
+type Caller interface {
+	Call(ctx context.Context, edgeID uint64, method string, body []byte) ([]byte, error)
+}
+
 // DeviceRepo just resolves device existence + ensures the caller
 // targets a real device id.
 type DeviceRepo = devicebiz.Repo
@@ -57,6 +64,7 @@ type DeviceRepo = devicebiz.Repo
 // Handler bundles dependencies. *Handler is constructed once at boot.
 type Handler struct {
 	streamer Streamer
+	caller   Caller
 	router   *bizwebshell.Router
 	audit    bizwebshell.Recorder
 	devices  DeviceRepo
@@ -66,8 +74,9 @@ type Handler struct {
 	upgrader websocket.Upgrader
 }
 
-// NewHandler builds the HTTP handler.
-func NewHandler(streamer Streamer, router *bizwebshell.Router, audit bizwebshell.Recorder,
+// NewHandler builds the HTTP handler. caller may be nil only if agent
+// mode is never used (SSH mode needs just the streamer).
+func NewHandler(streamer Streamer, caller Caller, router *bizwebshell.Router, audit bizwebshell.Recorder,
 	devices DeviceRepo, edges edgebiz.Repo, log *slog.Logger,
 ) *Handler {
 	if log == nil {
@@ -75,6 +84,7 @@ func NewHandler(streamer Streamer, router *bizwebshell.Router, audit bizwebshell
 	}
 	return &Handler{
 		streamer: streamer,
+		caller:   caller,
 		router:   router,
 		audit:    audit,
 		devices:  devices,
@@ -134,7 +144,8 @@ type streamMeta struct {
 
 // openMsg is the first text frame the browser sends.
 type openMsg struct {
-	Type    string `json:"type"` // "open"
+	Type    string `json:"type"`           // "open"
+	Mode    string `json:"mode,omitempty"` // "agent" = edge-hosted PTY; empty/"ssh" = legacy
 	Cols    uint16 `json:"cols"`
 	Rows    uint16 `json:"rows"`
 	Term    string `json:"term,omitempty"`
@@ -213,9 +224,17 @@ func (h *Handler) openShell(w http.ResponseWriter, r *http.Request) {
 		br.closeWith(websocket.CloseProtocolError, "bad open frame")
 		return
 	}
-	if openFrame.SSHUser == "" || openFrame.SSHPass == "" {
+	agentMode := openFrame.Mode == tunnel.ModeAgent
+	if !agentMode && (openFrame.SSHUser == "" || openFrame.SSHPass == "") {
 		br.closeWith(websocket.CloseProtocolError, "ssh_user / ssh_pass required")
 		return
+	}
+	// Agent sessions carry no OS credentials; the audit row names the
+	// transport instead. The real OS user (edge process user) arrives
+	// in the ready frame for the banner.
+	sshUser := openFrame.SSHUser
+	if agentMode {
+		sshUser = "edge-agent"
 	}
 	cols, rows := openFrame.Cols, openFrame.Rows
 	if cols == 0 {
@@ -235,7 +254,7 @@ func (h *Handler) openShell(w http.ResponseWriter, r *http.Request) {
 	if err := h.audit.Open(r.Context(), &wsmodel.Session{
 		ID:           sid,
 		OngridUserID: tenant.UserID,
-		SSHUser:      openFrame.SSHUser,
+		SSHUser:      sshUser,
 		DeviceID:     deviceID,
 		EdgeID:       edge.ID,
 		ClientIP:     clientIP(r),
@@ -248,13 +267,18 @@ func (h *Handler) openShell(w http.ResponseWriter, r *http.Request) {
 	h.router.Register(sid, br, bizwebshell.ActiveSession{
 		SessionID:    sid,
 		OngridUserID: tenant.UserID,
-		SSHUser:      openFrame.SSHUser,
+		SSHUser:      sshUser,
 		DeviceID:     deviceID,
 		EdgeID:       edge.ID,
 		StartedAt:    startedAt,
 		LastInputAt:  startedAt,
 	})
 	defer h.router.Unregister(sid)
+
+	if agentMode {
+		h.runAgentShell(r, sid, br, edge.ID, cols, rows, term)
+		return
+	}
 
 	// Open frontier stream to the edge with target meta.
 	streamCtx, cancelStreamOpen := context.WithTimeout(r.Context(), 10*time.Second)
@@ -360,6 +384,144 @@ func (h *Handler) openShell(w http.ResponseWriter, r *http.Request) {
 
 	h.closeAudit(sid, br, exitCode, string(cause))
 	br.closeWith(websocket.CloseNormalClosure, "")
+}
+
+// runAgentShell drives an agent-mode session: the edge owns the PTY
+// shell and pushes output back via shell_output / shell_exit, which
+// frontierbound routes through the WebshellRouter to this bridge
+// (OnOutput → binary frame, OnExit → exit frame + br.exit).
+func (h *Handler) runAgentShell(r *http.Request, sid string, br *bridge, edgeID uint64, cols, rows uint16, term string) {
+	if h.caller == nil {
+		br.sendText(map[string]any{"type": "auth_error", "message": "agent mode not wired on this manager"})
+		h.closeAudit(sid, br, 0, wsmodel.TerminatedBySSHAuthFail)
+		br.closeWith(websocket.CloseInternalServerErr, "agent mode not wired")
+		return
+	}
+
+	openBody, _ := json.Marshal(tunnel.ShellOpenRequest{
+		SessionID: sid,
+		Mode:      tunnel.ModeAgent,
+		Cols:      cols,
+		Rows:      rows,
+		Term:      term,
+	})
+	openCtx, cancelOpen := context.WithTimeout(r.Context(), 10*time.Second)
+	respBody, callErr := h.caller.Call(openCtx, edgeID, tunnel.MethodShellOpen, openBody)
+	cancelOpen()
+	if callErr != nil {
+		// Old edges don't register the shell_* handlers — surface that
+		// as an upgrade hint instead of a raw RPC dump.
+		msg := callErr.Error()
+		if strings.Contains(msg, "unknown method") || strings.Contains(msg, "not registered") {
+			msg = "edge 版本过旧，不支持 Agent 直连，请升级 edge"
+		} else if strings.Contains(msg, "agent shell disabled") {
+			msg = "主机策略已关闭 Agent 直连（ONGRID_EDGE_AGENT_SHELL_DISABLED）"
+		}
+		br.sendText(map[string]any{"type": "auth_error", "message": msg})
+		h.closeAudit(sid, br, 0, wsmodel.TerminatedBySSHAuthFail)
+		br.closeWith(websocket.CloseNormalClosure, "agent open")
+		return
+	}
+	var openResp tunnel.ShellOpenResponse
+	if err := json.Unmarshal(respBody, &openResp); err != nil || !openResp.Ok {
+		msg := "bad open response from edge"
+		if err == nil {
+			msg = openResp.Err
+		}
+		br.sendText(map[string]any{"type": "auth_error", "message": msg})
+		h.closeAudit(sid, br, 0, wsmodel.TerminatedBySSHAuthFail)
+		br.closeWith(websocket.CloseNormalClosure, "agent open")
+		return
+	}
+	br.sendText(map[string]any{"type": "ready", "os_user": openResp.OSUser})
+
+	pumpDone := make(chan terminationCause, 4)
+	br.killHook = func(reason string) {
+		// Best-effort: tell the edge to tear the PTY down too.
+		closeBody, _ := json.Marshal(tunnel.ShellCloseRequest{SessionID: sid, Reason: reason})
+		closeCtx, cancelClose := context.WithTimeout(context.Background(), 5*time.Second)
+		_, _ = h.caller.Call(closeCtx, edgeID, tunnel.MethodShellClose, closeBody)
+		cancelClose()
+		select {
+		case pumpDone <- terminationCause(reason):
+		default:
+		}
+	}
+
+	go h.pumpBrowserToAgent(r.Context(), sid, br, edgeID, pumpDone)
+	if IdleTimeout > 0 {
+		go h.idleWatchdog(r.Context(), sid, br, pumpDone)
+	}
+
+	var cause terminationCause
+	select {
+	case cause = <-pumpDone:
+	case <-br.exit: // edge pushed shell_exit (user typed exit / shell died)
+		cause = terminationCause(wsmodel.TerminatedBySSHExit)
+	}
+
+	h.closeAudit(sid, br, br.exitCode(), string(cause))
+	br.closeWith(websocket.CloseNormalClosure, "")
+}
+
+// pumpBrowserToAgent forwards browser frames to the edge's agent
+// shell: binary → shell_input, resize → shell_resize, close → done.
+func (h *Handler) pumpBrowserToAgent(parent context.Context, sid string, br *bridge, edgeID uint64, done chan<- terminationCause) {
+	for {
+		mt, data, err := br.read()
+		if err != nil {
+			select {
+			case done <- terminationCause(wsmodel.TerminatedByDisconnect):
+			default:
+			}
+			return
+		}
+		switch mt {
+		case websocket.BinaryMessage:
+			br.addStdin(uint64(len(data)))
+			h.router.TouchInput(sid)
+			body, _ := json.Marshal(tunnel.ShellInputRequest{SessionID: sid, Data: data})
+			callCtx, cancel := context.WithTimeout(parent, 10*time.Second)
+			_, callErr := h.caller.Call(callCtx, edgeID, tunnel.MethodShellInput, body)
+			cancel()
+			if callErr != nil {
+				select {
+				case done <- terminationCause(wsmodel.TerminatedByDisconnect):
+				default:
+				}
+				return
+			}
+		case websocket.TextMessage:
+			var ctl ctlMsg
+			if err := json.Unmarshal(data, &ctl); err != nil {
+				continue
+			}
+			switch ctl.Type {
+			case "resize":
+				h.router.TouchInput(sid)
+				body, _ := json.Marshal(tunnel.ShellResizeRequest{SessionID: sid, Cols: ctl.Cols, Rows: ctl.Rows})
+				callCtx, cancel := context.WithTimeout(parent, 10*time.Second)
+				_, _ = h.caller.Call(callCtx, edgeID, tunnel.MethodShellResize, body)
+				cancel()
+			case "close":
+				body, _ := json.Marshal(tunnel.ShellCloseRequest{SessionID: sid, Reason: wsmodel.TerminatedByUser})
+				callCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				_, _ = h.caller.Call(callCtx, edgeID, tunnel.MethodShellClose, body)
+				cancel()
+				select {
+				case done <- terminationCause(wsmodel.TerminatedByUser):
+				default:
+				}
+				return
+			}
+		case websocket.CloseMessage:
+			select {
+			case done <- terminationCause(wsmodel.TerminatedByUser):
+			default:
+			}
+			return
+		}
+	}
 }
 
 // pumpReaderToBridge reads from r (stdout / stderr) and writes binary
@@ -580,11 +742,11 @@ type rwcAdapter struct {
 	rwc io.ReadWriteCloser
 }
 
-func (a rwcAdapter) Read(p []byte) (int, error)  { return a.rwc.Read(p) }
-func (a rwcAdapter) Write(p []byte) (int, error) { return a.rwc.Write(p) }
-func (a rwcAdapter) Close() error                { return a.rwc.Close() }
-func (a rwcAdapter) LocalAddr() net.Addr             { return noopAddr{} }
-func (a rwcAdapter) RemoteAddr() net.Addr            { return noopAddr{} }
+func (a rwcAdapter) Read(p []byte) (int, error)       { return a.rwc.Read(p) }
+func (a rwcAdapter) Write(p []byte) (int, error)      { return a.rwc.Write(p) }
+func (a rwcAdapter) Close() error                     { return a.rwc.Close() }
+func (a rwcAdapter) LocalAddr() net.Addr              { return noopAddr{} }
+func (a rwcAdapter) RemoteAddr() net.Addr             { return noopAddr{} }
 func (a rwcAdapter) SetDeadline(time.Time) error      { return nil }
 func (a rwcAdapter) SetReadDeadline(time.Time) error  { return nil }
 func (a rwcAdapter) SetWriteDeadline(time.Time) error { return nil }
