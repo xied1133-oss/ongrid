@@ -1,0 +1,13 @@
+schema_version: 1
+module_path: internal_pkg
+title: 内部共享基础设施库（配置/数据库/LLM/认证/隧道/可观测性客户端）
+scope:
+    - internal/pkg/
+source_files: []
+depends_on: []
+related_to:
+    - path: cmd_ongrid
+    - path: cmd_ongrid_edge
+    - path: internal_edgeagent/collector
+    - path: internal_edgeagent/plugins
+    - path: internal_edgeagent/stream_skill_model

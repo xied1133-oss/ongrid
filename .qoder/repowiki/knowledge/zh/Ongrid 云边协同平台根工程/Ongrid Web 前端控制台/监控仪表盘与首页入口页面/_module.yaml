@@ -1,0 +1,13 @@
+schema_version: 1
+module_path: web_frontend/monitor_dashboard
+title: 监控仪表盘与首页入口页面
+scope:
+    - web/src/pages/Dashboard.tsx
+    - web/src/pages/Home.tsx
+    - web/src/pages/Monitor.tsx
+source_files: []
+depends_on: []
+related_to:
+    - path: internal_manager
+    - path: web_frontend/shared_components
+    - path: web_frontend/shared_libs

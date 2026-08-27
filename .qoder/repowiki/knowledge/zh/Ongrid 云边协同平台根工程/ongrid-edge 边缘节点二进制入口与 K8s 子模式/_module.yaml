@@ -1,0 +1,16 @@
+schema_version: 1
+module_path: cmd_ongrid_edge
+title: ongrid-edge 边缘节点二进制入口与 K8s 子模式
+scope:
+    - cmd/ongrid-edge/
+source_files: []
+depends_on: []
+related_to:
+    - path: api_specs
+    - path: internal_edgeagent/config_secrets
+    - path: internal_edgeagent/host_file_ops
+    - path: internal_edgeagent/install_service
+    - path: internal_edgeagent/k8s_data_plane
+    - path: internal_edgeagent/web_handlers
+    - path: internal_pkg
+    - path: scripts_and_skills

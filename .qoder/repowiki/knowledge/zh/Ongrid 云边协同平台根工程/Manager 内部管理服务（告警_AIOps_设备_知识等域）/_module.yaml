@@ -1,0 +1,20 @@
+schema_version: 1
+module_path: internal_manager
+title: Manager 内部管理服务（告警/AIOps/设备/知识等域）
+scope:
+    - internal/manager/
+source_files: []
+depends_on: []
+related_to:
+    - path: deploy_assets
+    - path: web_frontend/alerts_incidents_tasks
+    - path: web_frontend/api_client
+    - path: web_frontend/auth_and_chat
+    - path: web_frontend/clusters_kubernetes
+    - path: web_frontend/edges_topology
+    - path: web_frontend/knowledge_reports
+    - path: web_frontend/monitor_dashboard
+    - path: web_frontend/settings_admin/admin_audit
+    - path: web_frontend/settings_admin/general_notifications
+    - path: web_frontend/settings_admin/integrations_marketplace
+    - path: web_frontend/settings_admin/llm_agent

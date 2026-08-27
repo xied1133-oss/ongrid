@@ -3,11 +3,11 @@ schema_version: 1
 locale: zh-CN
 branch: main
 nodes_managed: true
-exported_at: "2026-08-26T07:36:17Z"
+exported_at: "2026-08-26T09:06:00Z"
 modules:
     "":
-        dir_name: Ongrid 云边协同设备管理平台（根工程）
-        title: Ongrid 云边协同设备管理平台（根工程）
+        dir_name: Ongrid 云边协同平台根工程
+        title: Ongrid 云边协同平台根工程
         scope:
             - README.md
             - CONTRIBUTING.md
@@ -58,9 +58,9 @@ modules:
         children: []
         depends_on: []
         related_to:
-            - path: internal_edgeagent/stream_skill_model
-            - path: internal_iam
-            - path: internal_manager
+            - path: cmd_ongrid
+            - path: cmd_ongrid_edge
+            - path: web_frontend/api_client
     cmd_ongrid:
         dir_name: ongrid 云端管理器可执行入口
         title: ongrid 云端管理器可执行入口
@@ -70,10 +70,12 @@ modules:
         children: []
         depends_on: []
         related_to:
+            - path: api_specs
             - path: deploy_assets
-            - path: internal_iam
-            - path: internal_manager
-            - path: scripts_and_skills
+            - path: internal_edgeagent/collector
+            - path: internal_edgeagent/plugins
+            - path: internal_edgeagent/stream_skill_model
+            - path: internal_pkg
             - path: tests
     cmd_ongrid_edge:
         dir_name: ongrid-edge 边缘节点二进制入口与 K8s 子模式
@@ -83,7 +85,15 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to: []
+        related_to:
+            - path: api_specs
+            - path: internal_edgeagent/config_secrets
+            - path: internal_edgeagent/host_file_ops
+            - path: internal_edgeagent/install_service
+            - path: internal_edgeagent/k8s_data_plane
+            - path: internal_edgeagent/web_handlers
+            - path: internal_pkg
+            - path: scripts_and_skills
     deploy_assets:
         dir_name: 部署与数据库迁移资产
         title: 部署与数据库迁移资产
@@ -95,8 +105,8 @@ modules:
         depends_on: []
         related_to:
             - path: cmd_ongrid
-            - path: internal_edgeagent
-            - path: tests
+            - path: internal_iam
+            - path: internal_manager
     docs:
         dir_name: 项目文档与 Agent 提示词目录
         title: 项目文档与 Agent 提示词目录
@@ -106,8 +116,7 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to:
-            - path: scripts_and_skills
+        related_to: []
     internal_edgeagent:
         dir_name: 边缘 Agent（edgeagent）运行时聚合模块
         title: 边缘 Agent（edgeagent）运行时聚合模块
@@ -127,9 +136,7 @@ modules:
             - internal_edgeagent/stream_skill_model
             - internal_edgeagent/web_handlers
         depends_on: []
-        related_to:
-            - path: deploy_assets
-            - path: internal_pkg
+        related_to: []
     internal_edgeagent/collector:
         dir_name: 边缘 Agent 指标采集与业务运行循环
         title: 边缘 Agent 指标采集与业务运行循环
@@ -140,8 +147,9 @@ modules:
         children: []
         depends_on: []
         related_to:
-            - path: internal_edgeagent/k8s_data_plane
-            - path: internal_edgeagent/plugins
+            - path: cmd_ongrid
+            - path: internal_edgeagent/packet_capture
+            - path: internal_pkg
     internal_edgeagent/command_policy:
         dir_name: 边缘 Agent 命令策略与沙箱执行器
         title: 边缘 Agent 命令策略与沙箱执行器
@@ -162,7 +170,7 @@ modules:
         children: []
         depends_on: []
         related_to:
-            - path: internal_edgeagent/install_service
+            - path: cmd_ongrid_edge
     internal_edgeagent/host_file_ops:
         dir_name: 主机文件系统与 Bash 执行 Edge 处理器
         title: 主机文件系统与 Bash 执行 Edge 处理器
@@ -173,8 +181,8 @@ modules:
         children: []
         depends_on: []
         related_to:
+            - path: cmd_ongrid_edge
             - path: internal_edgeagent/command_policy
-            - path: internal_edgeagent/web_handlers
     internal_edgeagent/install_service:
         dir_name: Edge Agent 安装服务与重启能力
         title: Edge Agent 安装服务与重启能力
@@ -185,7 +193,7 @@ modules:
         children: []
         depends_on: []
         related_to:
-            - path: internal_edgeagent/config_secrets
+            - path: cmd_ongrid_edge
             - path: internal_edgeagent/platform_dirs
     internal_edgeagent/k8s_data_plane:
         dir_name: Kubernetes 数据面代理（清单_指标_动作）
@@ -196,7 +204,8 @@ modules:
         children: []
         depends_on: []
         related_to:
-            - path: internal_edgeagent/collector
+            - path: cmd_ongrid_edge
+            - path: internal_edgeagent/platform_dirs
     internal_edgeagent/packet_capture:
         dir_name: 边缘端抓包服务（tcpdump 封装与任务调度）
         title: 边缘端抓包服务（tcpdump 封装与任务调度）
@@ -206,7 +215,7 @@ modules:
         children: []
         depends_on: []
         related_to:
-            - path: internal_edgeagent/web_handlers
+            - path: internal_edgeagent/collector
     internal_edgeagent/platform_dirs:
         dir_name: Edge Agent 平台无关部署目录常量
         title: Edge Agent 平台无关部署目录常量
@@ -217,6 +226,8 @@ modules:
         depends_on: []
         related_to:
             - path: internal_edgeagent/install_service
+            - path: internal_edgeagent/k8s_data_plane
+            - path: internal_edgeagent/plugins
     internal_edgeagent/plugins:
         dir_name: 边缘端插件运行时与生命周期管理
         title: 边缘端插件运行时与生命周期管理
@@ -226,7 +237,9 @@ modules:
         children: []
         depends_on: []
         related_to:
-            - path: internal_edgeagent/collector
+            - path: cmd_ongrid
+            - path: internal_edgeagent/platform_dirs
+            - path: internal_pkg
     internal_edgeagent/stream_skill_model:
         dir_name: 边缘 Agent 流路由、技能分发与本地模型
         title: 边缘 Agent 流路由、技能分发与本地模型
@@ -238,7 +251,8 @@ modules:
         children: []
         depends_on: []
         related_to:
-            - path: api_specs
+            - path: cmd_ongrid
+            - path: internal_pkg
             - path: internal_skill
     internal_edgeagent/web_handlers:
         dir_name: 边缘 Agent Web 请求处理器（operator _ service _ webshell）
@@ -251,8 +265,7 @@ modules:
         children: []
         depends_on: []
         related_to:
-            - path: internal_edgeagent/host_file_ops
-            - path: internal_edgeagent/packet_capture
+            - path: cmd_ongrid_edge
     internal_iam:
         dir_name: IAM 身份与权限域（用户_组织_成员_Casbin）
         title: IAM 身份与权限域（用户/组织/成员/Casbin）
@@ -262,10 +275,8 @@ modules:
         children: []
         depends_on: []
         related_to:
-            - path: api_specs
-            - path: cmd_ongrid
+            - path: deploy_assets
             - path: web_frontend/api_client
-            - path: web_frontend/auth_and_chat
             - path: web_frontend/settings_admin/users_orgs
     internal_manager:
         dir_name: Manager 内部管理服务（告警_AIOps_设备_知识等域）
@@ -276,34 +287,32 @@ modules:
         children: []
         depends_on: []
         related_to:
-            - path: api_specs
-            - path: cmd_ongrid
-            - path: internal_pkg
-            - path: web_frontend/agents_skills
+            - path: deploy_assets
             - path: web_frontend/alerts_incidents_tasks
             - path: web_frontend/api_client
+            - path: web_frontend/auth_and_chat
             - path: web_frontend/clusters_kubernetes
             - path: web_frontend/edges_topology
-            - path: web_frontend/flows_marketplace
             - path: web_frontend/knowledge_reports
             - path: web_frontend/monitor_dashboard
-            - path: web_frontend/observability_logs_traces
             - path: web_frontend/settings_admin/admin_audit
             - path: web_frontend/settings_admin/general_notifications
             - path: web_frontend/settings_admin/integrations_marketplace
             - path: web_frontend/settings_admin/llm_agent
-            - path: web_frontend/settings_admin/system_health_upgrade
     internal_pkg:
-        dir_name: 内部共享工具包（internal_pkg）
-        title: 内部共享工具包（internal/pkg）
+        dir_name: 内部共享基础设施库（配置_数据库_LLM_认证_隧道_可观测性客户端）
+        title: 内部共享基础设施库（配置/数据库/LLM/认证/隧道/可观测性客户端）
         scope:
             - internal/pkg/
         source_files: []
         children: []
         depends_on: []
         related_to:
-            - path: internal_edgeagent
-            - path: internal_manager
+            - path: cmd_ongrid
+            - path: cmd_ongrid_edge
+            - path: internal_edgeagent/collector
+            - path: internal_edgeagent/plugins
+            - path: internal_edgeagent/stream_skill_model
     internal_skill:
         dir_name: L2 Skill 能力框架与内置探针
         title: L2 Skill 能力框架与内置探针
@@ -324,8 +333,7 @@ modules:
         children: []
         depends_on: []
         related_to:
-            - path: cmd_ongrid
-            - path: docs
+            - path: cmd_ongrid_edge
     tests:
         dir_name: E2E 与集成测试套件
         title: E2E 与集成测试套件
@@ -336,10 +344,9 @@ modules:
         depends_on: []
         related_to:
             - path: cmd_ongrid
-            - path: deploy_assets
     web_frontend:
-        dir_name: Ongrid Web 前端工程（Vite + React SPA）
-        title: Ongrid Web 前端工程（Vite + React SPA）
+        dir_name: Ongrid Web 前端控制台
+        title: Ongrid Web 前端控制台
         scope:
             - web/
         source_files: []
@@ -372,8 +379,7 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to:
-            - path: internal_manager
+        related_to: []
     web_frontend/alerts_incidents_tasks:
         dir_name: 告警、规则、事件与任务审批页面集
         title: 告警、规则、事件与任务审批页面集
@@ -388,6 +394,7 @@ modules:
         depends_on: []
         related_to:
             - path: internal_manager
+            - path: web_frontend/app_shell
     web_frontend/api_client:
         dir_name: 前端 API 客户端层
         title: 前端 API 客户端层
@@ -397,10 +404,11 @@ modules:
         children: []
         depends_on: []
         related_to:
+            - path: api_specs
             - path: internal_iam
             - path: internal_manager
+            - path: web_frontend/observability_logs_traces
             - path: web_frontend/store_state
-            - path: web_frontend/tests_e2e
     web_frontend/app_shell:
         dir_name: 应用启动壳与全局样式_国际化
         title: 应用启动壳与全局样式/国际化
@@ -413,8 +421,13 @@ modules:
         children: []
         depends_on: []
         related_to:
+            - path: web_frontend/alerts_incidents_tasks
+            - path: web_frontend/auth_and_chat
+            - path: web_frontend/edges_topology
+            - path: web_frontend/flows_marketplace
+            - path: web_frontend/knowledge_reports
+            - path: web_frontend/settings_admin
             - path: web_frontend/shared_components
-            - path: web_frontend/store_state
     web_frontend/auth_and_chat:
         dir_name: 登录与会话_技能执行页面
         title: 登录与会话/技能执行页面
@@ -426,7 +439,9 @@ modules:
         children: []
         depends_on: []
         related_to:
-            - path: internal_iam
+            - path: internal_manager
+            - path: web_frontend/app_shell
+            - path: web_frontend/store_state
     web_frontend/clusters_kubernetes:
         dir_name: 设备集群与 Kubernetes 集群管理页面
         title: 设备集群与 Kubernetes 集群管理页面
@@ -453,6 +468,7 @@ modules:
         depends_on: []
         related_to:
             - path: internal_manager
+            - path: web_frontend/app_shell
     web_frontend/flows_marketplace:
         dir_name: 工作流编排与 MCP 服务市场页面
         title: 工作流编排与 MCP 服务市场页面
@@ -464,7 +480,7 @@ modules:
         children: []
         depends_on: []
         related_to:
-            - path: internal_manager
+            - path: web_frontend/app_shell
     web_frontend/knowledge_reports:
         dir_name: 知识库与产物查看页面（Knowledge & Artifacts）
         title: 知识库与产物查看页面（Knowledge & Artifacts）
@@ -478,6 +494,7 @@ modules:
         depends_on: []
         related_to:
             - path: internal_manager
+            - path: web_frontend/app_shell
     web_frontend/monitor_dashboard:
         dir_name: 监控仪表盘与首页入口页面
         title: 监控仪表盘与首页入口页面
@@ -490,6 +507,8 @@ modules:
         depends_on: []
         related_to:
             - path: internal_manager
+            - path: web_frontend/shared_components
+            - path: web_frontend/shared_libs
     web_frontend/observability_logs_traces:
         dir_name: 可观测性日志_链路_抓包页面
         title: 可观测性日志/链路/抓包页面
@@ -503,7 +522,7 @@ modules:
         children: []
         depends_on: []
         related_to:
-            - path: internal_manager
+            - path: web_frontend/api_client
     web_frontend/settings_admin:
         dir_name: 设置与管理后台前端模块（Settings & Admin Layout）
         title: 设置与管理后台前端模块（Settings & Admin Layout）
@@ -520,7 +539,8 @@ modules:
             - web_frontend/settings_admin/system_health_upgrade
             - web_frontend/settings_admin/users_orgs
         depends_on: []
-        related_to: []
+        related_to:
+            - path: web_frontend/app_shell
     web_frontend/settings_admin/admin_audit:
         dir_name: 管理后台与审计日志页面
         title: 管理后台与审计日志页面
@@ -579,8 +599,7 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to:
-            - path: internal_manager
+        related_to: []
     web_frontend/settings_admin/users_orgs:
         dir_name: 设置页：用户_组织_偏好管理
         title: 设置页：用户/组织/偏好管理
@@ -594,8 +613,8 @@ modules:
         related_to:
             - path: internal_iam
     web_frontend/shared_components:
-        dir_name: 共享 UI 组件与页面布局
-        title: 共享 UI 组件与页面布局
+        dir_name: Ongrid Web 共享组件库
+        title: Ongrid Web 共享组件库
         scope:
             - web/src/components/
         source_files: []
@@ -603,7 +622,7 @@ modules:
         depends_on: []
         related_to:
             - path: web_frontend/app_shell
-            - path: web_frontend/shared_libs
+            - path: web_frontend/monitor_dashboard
     web_frontend/shared_libs:
         dir_name: 前端共享工具库（Web Shared Libs）
         title: 前端共享工具库（Web Shared Libs）
@@ -613,7 +632,7 @@ modules:
         children: []
         depends_on: []
         related_to:
-            - path: web_frontend/shared_components
+            - path: web_frontend/monitor_dashboard
     web_frontend/store_state:
         dir_name: 前端全局状态管理（Zustand Store）
         title: 前端全局状态管理（Zustand Store）
@@ -624,7 +643,7 @@ modules:
         depends_on: []
         related_to:
             - path: web_frontend/api_client
-            - path: web_frontend/app_shell
+            - path: web_frontend/auth_and_chat
     web_frontend/tests_e2e:
         dir_name: 前端 E2E 与单元测试基础设施
         title: 前端 E2E 与单元测试基础设施
@@ -634,5 +653,4 @@ modules:
         source_files: []
         children: []
         depends_on: []
-        related_to:
-            - path: web_frontend/api_client
+        related_to: []

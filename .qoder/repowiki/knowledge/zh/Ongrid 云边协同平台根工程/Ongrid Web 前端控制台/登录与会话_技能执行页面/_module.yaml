@@ -1,0 +1,13 @@
+schema_version: 1
+module_path: web_frontend/auth_and_chat
+title: 登录与会话/技能执行页面
+scope:
+    - web/src/pages/Login.tsx
+    - web/src/pages/ChatThread.tsx
+    - web/src/pages/SkillRun.tsx
+source_files: []
+depends_on: []
+related_to:
+    - path: internal_manager
+    - path: web_frontend/app_shell
+    - path: web_frontend/store_state

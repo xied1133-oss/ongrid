@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: web_frontend/settings_admin/system_health_upgrade
+title: 系统健康检查、版本升级与 WebSSH 会话管理设置页
+scope:
+    - web/src/pages/settings/Health.tsx
+    - web/src/pages/settings/Upgrade.tsx
+    - web/src/pages/settings/Webshell.tsx
+source_files: []
+depends_on: []
+related_to: []

@@ -1,0 +1,11 @@
+schema_version: 1
+module_path: api_specs
+title: API 契约与 Proto 定义（ongrid API Specs）
+scope:
+    - api/
+source_files: []
+depends_on: []
+related_to:
+    - path: cmd_ongrid
+    - path: cmd_ongrid_edge
+    - path: web_frontend/api_client

@@ -1,9 +1,0 @@
-schema_version: 1
-module_path: web_frontend/shared_libs
-title: 前端共享工具库（Web Shared Libs）
-scope:
-    - web/src/lib/
-source_files: []
-depends_on: []
-related_to:
-    - path: web_frontend/shared_components

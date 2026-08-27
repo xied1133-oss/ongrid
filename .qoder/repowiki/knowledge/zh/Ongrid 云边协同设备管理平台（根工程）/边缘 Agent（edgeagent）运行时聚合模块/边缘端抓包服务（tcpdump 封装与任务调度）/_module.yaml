@@ -1,9 +1,0 @@
-schema_version: 1
-module_path: internal_edgeagent/packet_capture
-title: 边缘端抓包服务（tcpdump 封装与任务调度）
-scope:
-    - internal/edgeagent/packetcapture/
-source_files: []
-depends_on: []
-related_to:
-    - path: internal_edgeagent/web_handlers

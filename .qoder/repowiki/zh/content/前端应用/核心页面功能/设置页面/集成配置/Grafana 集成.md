@@ -12,14 +12,15 @@
 - [web/src/lib/drilldown.ts](file://web/src/lib/drilldown.ts)
 - [internal/manager/server/integration/http.go](file://internal/manager/server/integration/http.go)
 - [internal/pkg/grafana/client_test.go](file://internal/pkg/grafana/client_test.go)
+- [tests/e2e/grafana_loki_datasource_test.go](file://tests/e2e/grafana_loki_datasource_test.go)
 </cite>
 
 ## 更新摘要
 **所做更改**
-- 增强了 Grafana 客户端的错误处理机制，特别是针对只读数据源的处理
-- 添加了自动只读状态检测和优雅降级行为
-- 完善了测试覆盖范围，新增 248 行测试代码
-- 更新了数据源同步流程以支持文件基础配置的只读数据源
+- 更新了 Grafana 13 API 兼容性支持，从数值 ID 端点迁移到基于 UID 的端点
+- 增强了 UpsertDatasource 函数以使用新的 `/api/datasources/uid/{uid}` 端点进行更新操作
+- 改进了只读数据源检测机制，确保与 Grafana 13 的向后兼容性
+- 更新了测试用例以验证新的 UID 端点行为
 
 ## 目录
 1. [简介](#简介)
@@ -40,7 +41,7 @@
 - Service Account 与 API Key 两种认证方式的区别与适用场景
 - 如何添加新的数据源到 Grafana，以及如何配置深链接参数
 - 多组织环境下的配置要点与常见问题排查
-- **新增**：增强了对只读数据源的错误处理和优雅降级机制
+- **新增**：Grafana 13 API 兼容性更新，支持基于 UID 的数据源端点
 
 ## 项目结构
 Ongrid 的 Grafana 集成由三层组成：
@@ -77,7 +78,8 @@ Biz --> Provision["内置数据源清单<br/>deploy/grafana/provisioning/datasou
 - Grafana HTTP 客户端（pkg/grafana.Client）
   - 支持 Bearer（Service Account Token / API Key）与 Basic Auth 两种认证
   - 提供 Health、UpsertDatasource、EnsureFolder、UpsertDashboard、FetchDashboard、ServiceAccount 创建与令牌签发等能力
-  - **新增**：增强的只读数据源检测和优雅降级处理
+  - **已更新**：支持 Grafana 13 的基于 UID 的数据源端点
+  - **增强**：增强的只读数据源检测和优雅降级处理
 - Grafana 业务服务（biz/grafana.Service）
   - 从系统设置读取 root_url、sa_token/api_key、org_id 等
   - 实现 Test/Sync/SyncLoki/SyncLogsDatasource/SyncElasticsearch/FetchDashboardJSON 等操作
@@ -183,7 +185,7 @@ BuildClient --> Next["继续执行 Test/Sync"]
 
 ### 数据源同步（Prometheus/Loki/Elasticsearch）
 
-**已更新** 增强了只读数据源的处理机制
+**已更新** 支持 Grafana 13 API 兼容性，使用基于 UID 的端点
 
 - 固定 UID 的数据源
   - Prometheus：ongrid-prometheus（editable: false，通过文件配置）
@@ -193,8 +195,9 @@ BuildClient --> Next["继续执行 Test/Sync"]
   - 确保文件夹 ongrid 存在
   - 根据系统设置生成对应数据源的 JSONData/SecureJSONData（含鉴权信息）
   - 使用 UpsertDatasource 进行幂等更新（按 UID）
-  - **新增**：对只读 provisioned 的数据源做兼容处理，避免覆盖失败
-  - **新增**：自动检测 readOnly 字段，优雅跳过只读数据源的更新
+  - **已更新**：在 Grafana 13 中使用 `/api/datasources/uid/{uid}` 端点进行更新操作，替代了已移除的数值 ID 端点
+  - **增强**：对只读 provisioned 的数据源做兼容处理，避免覆盖失败
+  - **增强**：自动检测 readOnly 字段，优雅跳过只读数据源的更新
 - 日志后端切换
   - 支持仅同步当前活跃的日志后端（Loki 或 Elasticsearch）
 
@@ -209,7 +212,7 @@ G-->>C : 已存在或已创建
 S->>C : UpsertDatasource(UID=ongrid-prometheus)
 C->>G : GET /api/datasources/uid/...
 alt 已存在且可写
-C->>G : PUT /api/datasources/{id}
+C->>G : PUT /api/datasources/uid/{uid} (Grafana 13+)
 else 已存在但只读
 C->>C : 检测 readOnly=true
 C-->>S : 跳过更新优雅降级
@@ -284,20 +287,20 @@ F --> G["浏览器跳转到 Grafana Explore"]
 - [internal/manager/biz/grafana/service.go:433-460](file://internal/manager/biz/grafana/service.go#L433-L460)
 - [internal/manager/model/setting/model.go:164-182](file://internal/manager/model/setting/model.go#L164-L182)
 
-### 增强的错误处理机制
+### Grafana 13 API 兼容性更新
 
-**新增** 专门针对只读数据源的处理
+**已更新** 支持 Grafana 13 的新 API 端点
 
-- 自动只读状态检测
-  - 在 UpsertDatasource 方法中，首先通过 GET 请求获取数据源信息
-  - 检测响应中的 `readOnly` 字段，如果为 true 则跳过后续更新操作
-  - 避免因文件基础配置创建的只读数据源导致的更新失败
-- 优雅降级行为
-  - 当检测到只读数据源时，直接返回 nil（成功），而不是抛出错误
-  - 保持系统的稳定性，允许其他数据源的正常同步
-- 向后兼容性
-  - 即使未来版本的 Grafana 移除了 readOnly 字段，也会通过错误消息匹配进行兜底处理
-  - 支持多种错误消息格式："read-only data source" 和 "Cannot update read-only"
+- **主要变更**：从数值 ID 端点迁移到基于 UID 的端点
+  - 旧端点：`PUT /api/datasources/:id`（在 Grafana 13 中已移除）
+  - 新端点：`PUT /api/datasources/uid/{uid}`（Grafana 13+ 支持）
+- **实现细节**：
+  - 在 `UpsertDatasource` 方法中，更新操作现在使用基于 UID 的端点
+  - 保持了向后兼容性，通过错误消息匹配处理可能的兼容性问题
+  - 增强了只读数据源检测，确保在不同版本的 Grafana 中都能正确工作
+- **测试覆盖**：
+  - 单元测试验证了新的 UID 端点行为
+  - 端到端测试确保了数据源同步的正确性
 
 ```mermaid
 flowchart TD
@@ -306,7 +309,7 @@ GetDS --> CheckExists{"数据源是否存在?"}
 CheckExists --> |否| CreateDS["POST /api/datasources"]
 CheckExists --> |是| CheckReadOnly{"readOnly 字段?"}
 CheckReadOnly --> |true| SkipUpdate["跳过更新只读"]
-CheckReadOnly --> |false| UpdateDS["PUT /api/datasources/uid/{uid}"]
+CheckReadOnly --> |false| UpdateDS["PUT /api/datasources/uid/{uid} (Grafana 13+)"]
 UpdateDS --> CheckError{"是否只读错误?"}
 CheckError --> |是| GracefulFallback["优雅降级忽略错误"]
 CheckError --> |否| Success["完成"]
@@ -318,6 +321,25 @@ GracefulFallback --> Success
 **图表来源**
 - [internal/pkg/grafana/client.go:115-159](file://internal/pkg/grafana/client.go#L115-L159)
 - [internal/pkg/grafana/client.go:162-172](file://internal/pkg/grafana/client.go#L162-L172)
+
+**章节来源**
+- [internal/pkg/grafana/client.go:115-159](file://internal/pkg/grafana/client.go#L115-L159)
+- [internal/pkg/grafana/client.go:162-172](file://internal/pkg/grafana/client.go#L162-L172)
+
+### 增强的错误处理机制
+
+**增强** 专门针对只读数据源的处理
+
+- 自动只读状态检测
+  - 在 UpsertDatasource 方法中，首先通过 GET 请求获取数据源信息
+  - 检测响应中的 `readOnly` 字段，如果为 true 则跳过后续更新操作
+  - 避免因文件基础配置创建的只读数据源导致的更新失败
+- 优雅降级行为
+  - 当检测到只读数据源时，直接返回 nil（成功），而不是抛出错误
+  - 保持系统的稳定性，允许其他数据源的正常同步
+- 向后兼容性
+  - 即使未来版本的 Grafana 移除了 readOnly 字段，也会通过错误消息匹配进行兜底处理
+  - 支持多种错误消息格式："read-only data source" 和 "Cannot update read-only"
 
 **章节来源**
 - [internal/pkg/grafana/client.go:115-159](file://internal/pkg/grafana/client.go#L115-L159)
@@ -356,11 +378,12 @@ Biz --> Prov["provisioning 数据源清单"]
   - 默认 HTTP 客户端超时 15s；可通过 TLSInsecure 控制证书校验
 - 幂等性
   - 数据源与仪表板按 UID 操作，避免重复创建
-  - **新增**：对只读 provisioned 数据源做兼容，避免覆盖失败
+  - **已更新**：对只读 provisioned 数据源做兼容，避免覆盖失败
 - 健壮性
   - Health 检查失败不会阻塞启动；Bootstrap 失败仅记录告警
   - 错误信息对用户友好，便于定位配置问题
-  - **新增**：优雅降级机制确保部分数据源同步失败不影响整体流程
+  - **增强**：优雅降级机制确保部分数据源同步失败不影响整体流程
+  - **已更新**：Grafana 13 API 兼容性确保在新版本中稳定运行
 
 ## 故障排查指南
 - 连接失败
@@ -370,8 +393,9 @@ Biz --> Prov["provisioning 数据源清单"]
   - 确认 Service Account 具有所需权限（如读写数据源、仪表板）
   - 对外部 Grafana，确认 API Key 未过期且具备相应权限
 - 数据源无法更新
-  - **新增**：若数据源由 provisioning 以 editable:false 创建，API 将无法修改；这是预期行为，系统会自动跳过
+  - **已更新**：若数据源由 provisioning 以 editable:false 创建，API 将无法修改；这是预期行为，系统会自动跳过
   - 如需修改，需调整 provision 文件或改为可编辑模式
+  - **新增**：在 Grafana 13 环境中，确保使用正确的基于 UID 的端点
 - 仪表板未同步
   - 检查 ongrid 文件夹是否存在；查看日志中仪表板标题列表
 - 深链接无效
@@ -385,7 +409,7 @@ Biz --> Prov["provisioning 数据源清单"]
 - [web/src/pages/settings/Integrations.tsx:747-780](file://web/src/pages/settings/Integrations.tsx#L747-780)
 
 ## 结论
-Ongrid 的 Grafana 集成通过清晰的三层架构实现了安全的连接测试、数据源与仪表板的自动化同步，并提供灵活的认证方式与深链接能力。通过固定 UID 与幂等设计，保证了在多环境、多组织下的稳定运行。**最新的增强功能进一步提升了系统的健壮性，特别是对只读数据源的优雅处理，确保了在各种部署场景下的可靠运行。** 建议在生产环境中优先使用 Service Account Token，并在必要时结合 API Key 作为回退方案。
+Ongrid 的 Grafana 集成通过清晰的三层架构实现了安全的连接测试、数据源与仪表板的自动化同步，并提供灵活的认证方式与深链接能力。通过固定 UID 与幂等设计，保证了在多环境、多组织下的稳定运行。**最新的 Grafana 13 API 兼容性更新进一步提升了系统的现代性和稳定性，特别是对基于 UID 的数据源端点的支持，确保了在各种部署场景下的可靠运行。** 建议在生产环境中优先使用 Service Account Token，并在必要时结合 API Key 作为回退方案。
 
 ## 附录：开发与配置示例
 
@@ -395,7 +419,8 @@ Ongrid 的 Grafana 集成通过清晰的三层架构实现了安全的连接测�
 - 在 Sync 流程中增加对该数据源的 UpsertDatasource 调用
 - 如需安全字段（如密码、密钥），放入 SecureJSONData；普通配置放入 JSONData
 - 通过前端设置页或系统设置更新 root_url 与认证信息后，执行同步
-- **新增**：如果需要支持只读模式，确保在 provisioning 文件中设置 appropriate 的 editable 标志
+- **已更新**：确保与 Grafana 13 兼容，使用基于 UID 的端点进行更新操作
+- **增强**：如果需要支持只读模式，确保在 provisioning 文件中设置 appropriate 的 editable 标志
 
 参考位置：
 - 数据源结构与 upsert 逻辑：[internal/pkg/grafana/client.go:86-159](file://internal/pkg/grafana/client.go#L86-L159)
@@ -450,16 +475,18 @@ Ongrid 的 Grafana 集成通过清晰的三层架构实现了安全的连接测�
 
 ### 测试覆盖与质量保证
 
-**新增** 全面的测试覆盖
+**增强** 全面的测试覆盖
 
 - 单元测试覆盖
   - Health 检查测试：验证认证头和响应解析
   - 数据源同步测试：涵盖创建、更新、只读跳过等场景
   - 仪表板操作测试：验证包装负载和错误处理
   - 错误处理测试：确保非 2xx 响应被正确处理
+  - **已更新**：验证 Grafana 13 基于 UID 的端点行为
 - 端到端测试
   - 验证 provisioning 文件的 editable 标志配置
   - 确保数据源同步的正确性和完整性
+  - **已更新**：测试新的 UID 端点在 Grafana 13 环境中的行为
 
 参考位置：
 - 客户端测试：[internal/pkg/grafana/client_test.go:1-249](file://internal/pkg/grafana/client_test.go#L1-L249)
