@@ -1240,9 +1240,12 @@ func main() {
 
 	// WebSSH HTTP handler — uses fbClient.OpenStream to layer ssh +
 	// pty over a raw byte stream into edge:127.0.0.1:22. SSH client
-	// runs in the manager; edge is a dumb byte forwarder.
+	// runs in the manager; edge is a dumb byte forwarder. Agent mode
+	// (mode=agent) instead drives shell_* RPCs via fbClient.Call so
+	// the edge hosts the PTY directly — no OS credentials needed.
 	webshellHandler := managerwebshellserver.NewHandler(
 		webshellStreamerAdapter{c: fbClient},
+		fbClient,
 		webshellRouter,
 		webshellAuditAdapter{repo: webshellAuditRepo},
 		deviceRepo,

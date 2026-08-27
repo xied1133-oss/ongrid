@@ -102,8 +102,18 @@ const (
 // ShellOpenRequest is the manager-to-edge request that establishes a
 // new WebSSH session. SSHPass is one-shot and wiped from edge memory
 // after Dial; never logged, never stored.
+//
+// Mode selects the session backend on the edge:
+//
+//	"" / "ssh"   legacy stream-forward path (SSH lives on the manager;
+//	             the edge io.Copy's the stream to its local sshd) —
+//	             this RPC is then NOT used, the manager opens a stream
+//	"agent"      the edge spawns a PTY shell directly (no OS creds
+//	             needed; runs as the edge process user) and pushes
+//	             output back via shell_output / shell_exit
 type ShellOpenRequest struct {
 	SessionID string `json:"session_id"`
+	Mode      string `json:"mode,omitempty"`
 	Cols      uint16 `json:"cols"`
 	Rows      uint16 `json:"rows"`
 	Term      string `json:"term"`     // e.g. "xterm-256color"
@@ -112,10 +122,16 @@ type ShellOpenRequest struct {
 	SSHPass   string `json:"ssh_pass"` // wiped after Dial
 }
 
-// ShellOpenResponse acks the SSH session is up. On failure Err is set.
+// ModeAgent is the edge-hosted PTY backend (zero OS credentials).
+const ModeAgent = "agent"
+
+// ShellOpenResponse acks the session is up. On failure Err is set.
+// OSUser is the OS identity the edge-side PTY runs as (agent mode
+// only); the manager shows it in the terminal banner.
 type ShellOpenResponse struct {
-	Ok  bool   `json:"ok"`
-	Err string `json:"err,omitempty"`
+	Ok     bool   `json:"ok"`
+	Err    string `json:"err,omitempty"`
+	OSUser string `json:"os_user,omitempty"`
 }
 
 // ShellInputRequest carries a stdin chunk.

@@ -36,6 +36,7 @@ import { Card, EmptyState, PageHeader } from '@/components/ui';
 import { Shield } from 'lucide-react';
 
 type ConnectInputs = {
+  mode: 'agent' | 'ssh';
   user: string;
   password: string;
   port: number;
@@ -247,14 +248,18 @@ export default function DeviceShellPage() {
       ws.onopen = () => {
         const { cols, rows } = sizeRef.current;
         const sshHost = inputs.port && inputs.port !== 22 ? `127.0.0.1:${inputs.port}` : '';
+        // Agent mode carries no OS credentials — the edge spawns the
+        // PTY shell itself. ssh_user / ssh_pass stay empty strings so
+        // the frame shape is stable across modes.
         sendControl(ws, {
           type: 'open',
+          mode: inputs.mode,
           cols,
           rows,
           term: 'xterm-256color',
-          ssh_user: inputs.user,
-          ssh_pass: inputs.password,
-          ssh_host: sshHost,
+          ssh_user: inputs.mode === 'agent' ? '' : inputs.user,
+          ssh_pass: inputs.mode === 'agent' ? '' : inputs.password,
+          ssh_host: inputs.mode === 'agent' ? '' : sshHost,
         });
         // We deliberately do NOT clear inputs.password from the closure —
         // it's already only in stack memory + the WS frame buffer. Once
@@ -278,10 +283,19 @@ export default function DeviceShellPage() {
         switch (frame.type) {
           case 'ready':
             setConn({ kind: 'open' });
-            writeBanner(ansiDim(tr(`-- SSH 已连接 (${inputs.user}@${edge?.name ?? deviceId}) --`, `-- SSH connected (${inputs.user}@${edge?.name ?? deviceId}) --`)));
+            if (inputs.mode === 'agent') {
+              const who = frame.os_user || 'edge-agent';
+              writeBanner(ansiDim(tr(`-- Agent 直连已连接 (${who}@${edge?.name ?? deviceId}) --`, `-- Agent session connected (${who}@${edge?.name ?? deviceId}) --`)));
+            } else {
+              writeBanner(ansiDim(tr(`-- SSH 已连接 (${inputs.user}@${edge?.name ?? deviceId}) --`, `-- SSH connected (${inputs.user}@${edge?.name ?? deviceId}) --`)));
+            }
             break;
           case 'auth_error':
-            writeBanner(ansiRed(tr(`SSH 认证失败：${frame.message || '用户名或密码错误'}`, `SSH auth failed: ${frame.message || 'invalid username or password'}`)));
+            writeBanner(
+              inputs.mode === 'agent'
+                ? ansiRed(tr(`连接失败：${frame.message || 'edge 拒绝了会话'}`, `Connection failed: ${frame.message || 'edge refused the session'}`))
+                : ansiRed(tr(`SSH 认证失败：${frame.message || '用户名或密码错误'}`, `SSH auth failed: ${frame.message || 'invalid username or password'}`)),
+            );
             setConn({ kind: 'closed', reason: 'auth' });
             // Re-open the modal so the user can retry without leaving.
             setModalOpen(true);
@@ -499,6 +513,10 @@ function ConnectModal({
   onCancel(): void;
 }) {
   const { tr } = useI18n();
+  // Default to agent mode: bastion-only hosts have no OS credentials
+  // to type. SSH mode stays available for hosts that do distribute
+  // passwords.
+  const [mode, setMode] = useState<'agent' | 'ssh'>('agent');
   const [user, setUser] = useState('');
   const [password, setPassword] = useState('');
   const [port, setPort] = useState<string>('22');
@@ -524,6 +542,10 @@ function ConnectModal({
   if (!open) return null;
 
   const submit = () => {
+    if (mode === 'agent') {
+      onSubmit({ mode, user: '', password: '', port: 22, remember: false });
+      return;
+    }
     const u = user.trim();
     if (!u) {
       setErr(tr('请输入 OS 用户名', 'Please enter the OS username'));
@@ -538,7 +560,7 @@ function ConnectModal({
       setErr(tr('端口必须在 1-65535 之间', 'Port must be between 1 and 65535'));
       return;
     }
-    onSubmit({ user: u, password, port: p, remember });
+    onSubmit({ mode, user: u, password, port: p, remember });
   };
 
   return (
@@ -559,10 +581,44 @@ function ConnectModal({
       }
     >
       <div className="space-y-3">
-        <div>
-          <label htmlFor="webssh-user" className="mb-1 block text-[11px] text-zinc-500">
-            {tr('OS 用户', 'OS user')}
+        <div role="radiogroup" className="space-y-1.5">
+          <label className="flex cursor-pointer items-start gap-2 text-xs text-zinc-300">
+            <input
+              type="radio"
+              name="webssh-mode"
+              checked={mode === 'agent'}
+              onChange={() => setMode('agent')}
+              className="mt-0.5 h-3.5 w-3.5 accent-zinc-300"
+            />
+            <span>
+              {tr('Edge Agent 直连（无需 OS 凭据）', 'Edge Agent direct (no OS credentials)')}
+              <span className="block text-[11px] text-zinc-600">
+                {tr('shell 以 edge 进程身份（通常为 root）运行；走平台账号鉴权与审计。', 'The shell runs as the edge process user (typically root); auth and audit go through the platform account.')}
+              </span>
+            </span>
           </label>
+          <label className="flex cursor-pointer items-start gap-2 text-xs text-zinc-300">
+            <input
+              type="radio"
+              name="webssh-mode"
+              checked={mode === 'ssh'}
+              onChange={() => setMode('ssh')}
+              className="mt-0.5 h-3.5 w-3.5 accent-zinc-300"
+            />
+            <span>
+              {tr('SSH 账号密码', 'SSH username & password')}
+              <span className="block text-[11px] text-zinc-600">
+                {tr('走设备本机 sshd（127.0.0.1:22），需要主机下发的账号。', "Uses the device's local sshd (127.0.0.1:22); requires a distributed OS account.")}
+              </span>
+            </span>
+          </label>
+        </div>
+        {mode === 'ssh' && (
+          <>
+            <div>
+              <label htmlFor="webssh-user" className="mb-1 block text-[11px] text-zinc-500">
+                {tr('OS 用户', 'OS user')}
+              </label>
           <input
             id="webssh-user"
             autoFocus
@@ -628,6 +684,8 @@ function ConnectModal({
           />
           {tr('记住此用户名（仅本浏览器，不保存密码）', 'Remember this username (this browser only; password is never stored)')}
         </label>
+          </>
+        )}
         {err && (
           <div
             role="alert"
@@ -637,7 +695,9 @@ function ConnectModal({
           </div>
         )}
         <p className="text-[11px] text-zinc-600">
-          {tr('提示：密码不会被写入浏览器存储；关闭弹窗或刷新页面后立即丢弃。', 'Note: the password is never persisted in browser storage; it is discarded as soon as the dialog closes or the page reloads.')}
+          {mode === 'ssh'
+            ? tr('提示：密码不会被写入浏览器存储；关闭弹窗或刷新页面后立即丢弃。', 'Note: the password is never persisted in browser storage; it is discarded as soon as the dialog closes or the page reloads.')
+            : tr('提示：直连模式下不输入任何凭据；会话权限等同 edge 进程权限。', 'Note: no credentials are entered in direct mode; the session runs with the edge process privileges.')}
         </p>
       </div>
     </Modal>

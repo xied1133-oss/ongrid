@@ -57,6 +57,10 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8090',
         changeOrigin: true,
+        // The WebSSH endpoint (/api/v1/devices/:id/shell) is a WebSocket
+        // upgrade; without ws:true the proxy never forwards the upgrade
+        // event and the browser hangs in CONNECTING forever.
+        ws: true,
       },
     },
   },

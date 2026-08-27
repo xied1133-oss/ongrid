@@ -61,7 +61,15 @@ var version = "dev"
 
 // edgeMetricsAddr is the local debug /metrics port for edge. Kept separate
 // from cloud metrics (:9100) so both can run on the same dev host.
-const edgeMetricsAddr = ":9101"
+// Overridable via ONGRID_EDGE_METRICS_ADDR for hosts where :9101 is
+// already published by an unrelated container (docker-proxy bind clash
+// would otherwise crash-loop the agent).
+func edgeMetricsAddr() string {
+	if v := os.Getenv("ONGRID_EDGE_METRICS_ADDR"); v != "" {
+		return v
+	}
+	return ":9101"
+}
 
 func main() {
 	if handled, err := runK8sHostCommand(context.Background(), os.Args[1:]); handled {
@@ -205,6 +213,12 @@ func main() {
 		}, func(stream tunnel.StreamConn) {
 			edgewebshell.HandleStream(stream, webshellLog)
 		}, log.With(slog.String("comp", "streamrouter")))
+
+		// WebSSH agent mode: edge spawns the PTY shell itself (as the
+		// edge process user) so bastion-only hosts without distributed
+		// OS passwords still get an interactive terminal. Host kill
+		// switch: ONGRID_EDGE_AGENT_SHELL_DISABLED=true.
+		edgewebshell.RegisterAgentShell(client, webshellLog)
 	} else {
 		log.Info("kubernetes controller: host handlers disabled",
 			slog.String("role", k8sInfo.Role),
@@ -285,7 +299,7 @@ func main() {
 	metricsMux.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 	})
-	metricsServer := httpserver.New(edgeMetricsAddr, metricsMux, log.With(slog.String("listener", "metrics")))
+	metricsServer := httpserver.New(edgeMetricsAddr(), metricsMux, log.With(slog.String("listener", "metrics")))
 
 	eg.Go(func() error { return metricsServer.Start(egCtx) })
 	// When agent.Run returns (clean ctx cancel OR upgrade
