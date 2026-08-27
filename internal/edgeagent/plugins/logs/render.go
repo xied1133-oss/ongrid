@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"path/filepath"
 	"regexp"
@@ -82,6 +83,17 @@ func render(cfg plugins.PluginConfig) ([]byte, error) {
 	clusterName := strings.TrimSpace(stringSpec(spec, "cluster_name"))
 	nodeName := strings.TrimSpace(stringSpec(spec, "node_name"))
 	startAt, err := startAtSpec(spec, "start_at", "end")
+	if err != nil {
+		return nil, err
+	}
+	// 采集器内部 telemetry（自指标）监听默认 127.0.0.1:8889。
+	// 业务进程已占用该端口的主机上，子进程会因 EADDRINUSE 崩溃循环，
+	// 因此对齐 traces 插件的逃生口，允许 manager 通过 spec 改端口。
+	cmEndpoint := strings.TrimSpace(stringSpec(spec, "collector_metrics_endpoint"))
+	if cmEndpoint == "" {
+		cmEndpoint = "127.0.0.1:8889"
+	}
+	collectorMetricsHost, collectorMetricsPort, err := collectorMetricsAddress(cmEndpoint)
 	if err != nil {
 		return nil, err
 	}
@@ -235,7 +247,7 @@ func render(cfg plugins.PluginConfig) ([]byte, error) {
 					"readers": []interface{}{map[string]interface{}{
 						"pull": map[string]interface{}{"exporter": map[string]interface{}{
 							"prometheus": map[string]interface{}{
-								"host": "127.0.0.1", "port": 8889,
+								"host": collectorMetricsHost, "port": collectorMetricsPort,
 								"without_type_suffix": true, "without_units": true,
 							},
 						}},
@@ -864,6 +876,18 @@ func stringSpec(spec map[string]interface{}, key string) string {
 	default:
 		return ""
 	}
+}
+
+func collectorMetricsAddress(raw string) (string, int, error) {
+	host, portText, err := net.SplitHostPort(strings.TrimSpace(raw))
+	if err != nil || host == "" {
+		return "", 0, fmt.Errorf("logs plugin: invalid collector_metrics_endpoint")
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil || port < 1 || port > 65535 {
+		return "", 0, fmt.Errorf("logs plugin: invalid collector_metrics_endpoint")
+	}
+	return host, port, nil
 }
 
 func boolSpecDefault(spec map[string]interface{}, key string, fallback bool) bool {

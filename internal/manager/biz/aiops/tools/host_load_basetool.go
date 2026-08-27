@@ -55,7 +55,7 @@ func NewGetHostLoadTool(caller Caller, edges *edgebiz.Usecase, devices *devicebi
 
 // GetHostLoadBatchArgs is the typed form of GetHostLoadSchema (batch).
 type GetHostLoadBatchArgs struct {
-	DeviceIDs []uint64 `json:"device_ids"`
+	DeviceIDs LenientIDList `json:"device_ids"`
 }
 
 // HostLoadResultEntry is one slot in the batch envelope. Either

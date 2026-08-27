@@ -54,7 +54,7 @@ func NewGetEdgeSummaryTool(caller Caller, edges *edgebiz.Usecase, devices *devic
 
 // GetEdgeSummaryBatchArgs is the typed form of the batch schema.
 type GetEdgeSummaryBatchArgs struct {
-	DeviceIDs []uint64 `json:"device_ids"`
+	DeviceIDs LenientIDList `json:"device_ids"`
 }
 
 // EdgeSummaryResultEntry is one slot in the batch envelope. On success

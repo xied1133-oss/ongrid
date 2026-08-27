@@ -158,11 +158,11 @@ var FindLargeFilesSchema = json.RawMessage(`{
 
 // findLargeFilesArgs is the typed form of FindLargeFilesSchema.
 type findLargeFilesArgs struct {
-	DeviceID     uint64   `json:"device_id"`
-	Paths        []string `json:"paths"`
-	TopN         int      `json:"top_n"`
-	MinSizeBytes int64    `json:"min_size_bytes"`
-	ExcludePaths []string `json:"exclude_paths"`
+	DeviceID     LenientID         `json:"device_id"`
+	Paths        LenientStringList `json:"paths"`
+	TopN         int               `json:"top_n"`
+	MinSizeBytes int64             `json:"min_size_bytes"`
+	ExcludePaths LenientStringList `json:"exclude_paths"`
 }
 
 // findLargeFilesResultEnvelope wraps the edge response with the
@@ -248,7 +248,7 @@ func (t *FindLargeFilesTool) InvokableRun(ctx context.Context, argsJSON string, 
 		in.ExcludePaths = []string{"/proc", "/sys", "/dev", "/run"}
 	}
 
-	edgeID, err := t.resolver.LookupHostEdge(ctx, in.DeviceID)
+	edgeID, err := t.resolver.LookupHostEdge(ctx, uint64(in.DeviceID))
 	if err != nil {
 		return "", fmt.Errorf("%s: resolve device %d: %w", ToolNameFindLargeFiles, in.DeviceID, err)
 	}
@@ -271,7 +271,7 @@ func (t *FindLargeFilesTool) InvokableRun(ctx context.Context, argsJSON string, 
 		return "", fmt.Errorf("%s: decode resp: %w", ToolNameFindLargeFiles, err)
 	}
 	env := findLargeFilesResultEnvelope{
-		DeviceID: in.DeviceID,
+		DeviceID: uint64(in.DeviceID),
 		Results:  resp.Results,
 	}
 	for i := range resp.Results {
@@ -328,9 +328,9 @@ var DuSummarySchema = json.RawMessage(`{
 
 // duSummaryArgs is the typed form of DuSummarySchema.
 type duSummaryArgs struct {
-	DeviceID uint64   `json:"device_id"`
-	Paths    []string `json:"paths"`
-	Depth    int      `json:"depth"`
+	DeviceID LenientID         `json:"device_id"`
+	Paths    LenientStringList `json:"paths"`
+	Depth    LenientInt        `json:"depth"`
 }
 
 // duSummaryResultEnvelope wraps the edge response with device_id +
@@ -414,7 +414,7 @@ func (t *DuSummaryTool) InvokableRun(ctx context.Context, argsJSON string, _ ...
 		in.Depth = 5
 	}
 
-	edgeID, err := t.resolver.LookupHostEdge(ctx, in.DeviceID)
+	edgeID, err := t.resolver.LookupHostEdge(ctx, uint64(in.DeviceID))
 	if err != nil {
 		return "", fmt.Errorf("%s: resolve device %d: %w", ToolNameDuSummary, in.DeviceID, err)
 	}
@@ -422,7 +422,7 @@ func (t *DuSummaryTool) InvokableRun(ctx context.Context, argsJSON string, _ ...
 		return "", fmt.Errorf("%s: device_id=%d has no host-edge link (try query_devices to list available device ids)", ToolNameDuSummary, in.DeviceID)
 	}
 
-	req := tunnel.DuSummaryRequest{Paths: in.Paths, Depth: in.Depth}
+	req := tunnel.DuSummaryRequest{Paths: in.Paths, Depth: int(in.Depth)}
 	respBody, err := dispatchEdgeCall(ctx, t.caller, edgeID, tunnel.MethodDuSummary, req, ToolNameDuSummary)
 	if err != nil {
 		return "", err
@@ -432,7 +432,7 @@ func (t *DuSummaryTool) InvokableRun(ctx context.Context, argsJSON string, _ ...
 		return "", fmt.Errorf("%s: decode resp: %w", ToolNameDuSummary, err)
 	}
 	env := duSummaryResultEnvelope{
-		DeviceID:    in.DeviceID,
+		DeviceID:    uint64(in.DeviceID),
 		Results:     resp.Results,
 		Filesystems: resp.Filesystems,
 	}
@@ -577,8 +577,8 @@ var StatFileSchema = json.RawMessage(`{
 
 // statFileArgs is the typed form of StatFileSchema.
 type statFileArgs struct {
-	DeviceID uint64   `json:"device_id"`
-	Paths    []string `json:"paths"`
+	DeviceID LenientID         `json:"device_id"`
+	Paths    LenientStringList `json:"paths"`
 }
 
 // statFileResultEnvelope wraps the edge response with device_id +
@@ -637,7 +637,7 @@ func (t *StatFileTool) InvokableRun(ctx context.Context, argsJSON string, _ ...b
 		return "", err
 	}
 
-	edgeID, err := t.resolver.LookupHostEdge(ctx, in.DeviceID)
+	edgeID, err := t.resolver.LookupHostEdge(ctx, uint64(in.DeviceID))
 	if err != nil {
 		return "", fmt.Errorf("%s: resolve device %d: %w", ToolNameStatFile, in.DeviceID, err)
 	}
@@ -655,7 +655,7 @@ func (t *StatFileTool) InvokableRun(ctx context.Context, argsJSON string, _ ...b
 		return "", fmt.Errorf("%s: decode resp: %w", ToolNameStatFile, err)
 	}
 	env := statFileResultEnvelope{
-		DeviceID: in.DeviceID,
+		DeviceID: uint64(in.DeviceID),
 		Results:  resp.Results,
 	}
 	for i := range resp.Results {

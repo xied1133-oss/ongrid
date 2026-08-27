@@ -555,9 +555,10 @@ export default function MonitorPage() {
                 .filter((e) => typeof e.device_id === 'number')
                 .map((e) => ({
                   value: String(e.device_id),
-                  // Show display name + device_id so collisions on the
-                  // same hostname stay distinguishable.
-                  label: `${e.name || tr('(未命名)', '(unnamed)')} (#${e.device_id})`,
+                  // 显示名 + 括号主机名 + device_id：内置链路的指标只带
+                  // device_id 标签，主机名靠设备行补齐，便于和登录主机对眼；
+                  // device_id 兜底同名主机的区分。
+                  label: `${e.name || tr('(未命名)', '(unnamed)')}${e.device_name && e.device_name !== e.name ? ` (${e.device_name})` : ''} (#${e.device_id})`,
                 })),
             ]}
             // Picking a device clears the role filter — they're
