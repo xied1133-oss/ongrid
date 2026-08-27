@@ -33,7 +33,7 @@ func NewGetIncidentDetailTool(alertUC AlertUsecase, log *slog.Logger) *GetIncide
 
 // GetIncidentDetailBatchArgs is the typed form of the batch schema.
 type GetIncidentDetailBatchArgs struct {
-	IncidentIDs []uint64 `json:"incident_ids"`
+	IncidentIDs LenientIDList `json:"incident_ids"`
 }
 
 // IncidentDetailResultEntry is one slot in the batch envelope. On

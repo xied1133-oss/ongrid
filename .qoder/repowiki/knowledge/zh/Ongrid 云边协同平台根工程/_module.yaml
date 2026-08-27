@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: ""
-title: Ongrid 云边协同平台根工程
+title: OnGrid 云边协同平台根工程
 scope:
     - README.md
     - CONTRIBUTING.md

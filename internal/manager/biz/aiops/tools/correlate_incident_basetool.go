@@ -65,8 +65,8 @@ func NewCorrelateIncidentTool(
 
 // CorrelateIncidentBatchArgs is the typed form of the batch schema.
 type CorrelateIncidentBatchArgs struct {
-	IncidentIDs   []uint64 `json:"incident_ids"`
-	WindowMinutes int      `json:"window_minutes,omitempty"`
+	IncidentIDs   LenientIDList `json:"incident_ids"`
+	WindowMinutes int           `json:"window_minutes,omitempty"`
 }
 
 // CorrelateIncidentResultEntry is one slot in the batch envelope. On

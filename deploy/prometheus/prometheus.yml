@@ -13,9 +13,12 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:9090']
 
+  # Local dev runs the manager via `go run` on the host (the compose
+  # `ongrid` container stays stopped), so scrape through the docker
+  # host gateway instead of the container hostname.
   - job_name: 'ongrid-manager'
     static_configs:
-      - targets: ['ongrid:9100']
+      - targets: ['host.docker.internal:9100']
     scrape_interval: 15s
 
   # frontier 没有自暴露 /metrics（singchia/frontier:v1.2.4 暂未开），

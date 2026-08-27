@@ -3,11 +3,11 @@ schema_version: 1
 locale: zh-CN
 branch: main
 nodes_managed: true
-exported_at: "2026-08-26T09:06:00Z"
+exported_at: "2026-08-27T04:36:40Z"
 modules:
     "":
-        dir_name: Ongrid 云边协同平台根工程
-        title: Ongrid 云边协同平台根工程
+        dir_name: OnGrid 云边协同平台根工程
+        title: OnGrid 云边协同平台根工程
         scope:
             - README.md
             - CONTRIBUTING.md
@@ -62,8 +62,8 @@ modules:
             - path: cmd_ongrid_edge
             - path: web_frontend/api_client
     cmd_ongrid:
-        dir_name: ongrid 云端管理器可执行入口
-        title: ongrid 云端管理器可执行入口
+        dir_name: ongrid 云端管理器进程入口
+        title: ongrid 云端管理器进程入口
         scope:
             - cmd/ongrid/
         source_files: []
@@ -78,8 +78,8 @@ modules:
             - path: internal_pkg
             - path: tests
     cmd_ongrid_edge:
-        dir_name: ongrid-edge 边缘节点二进制入口与 K8s 子模式
-        title: ongrid-edge 边缘节点二进制入口与 K8s 子模式
+        dir_name: ongrid-edge 边缘 Agent 二进制入口
+        title: ongrid-edge 边缘 Agent 二进制入口
         scope:
             - cmd/ongrid-edge/
         source_files: []
@@ -108,8 +108,8 @@ modules:
             - path: internal_iam
             - path: internal_manager
     docs:
-        dir_name: 项目文档与 Agent 提示词目录
-        title: 项目文档与 Agent 提示词目录
+        dir_name: 项目文档与 Agent 提示词定义
+        title: 项目文档与 Agent 提示词定义
         scope:
             - docs/
             - agents/
@@ -118,8 +118,8 @@ modules:
         depends_on: []
         related_to: []
     internal_edgeagent:
-        dir_name: 边缘 Agent（edgeagent）运行时聚合模块
-        title: 边缘 Agent（edgeagent）运行时聚合模块
+        dir_name: 边缘 Agent 运行时（EdgeAgent）
+        title: 边缘 Agent 运行时（EdgeAgent）
         scope:
             - internal/edgeagent/
         source_files: []
@@ -255,8 +255,8 @@ modules:
             - path: internal_pkg
             - path: internal_skill
     internal_edgeagent/web_handlers:
-        dir_name: 边缘 Agent Web 请求处理器（operator _ service _ webshell）
-        title: 边缘 Agent Web 请求处理器（operator / service / webshell）
+        dir_name: Edge Agent Web 远程能力处理器
+        title: Edge Agent Web 远程能力处理器
         scope:
             - internal/edgeagent/operator/
             - internal/edgeagent/service/
@@ -279,8 +279,8 @@ modules:
             - path: web_frontend/api_client
             - path: web_frontend/settings_admin/users_orgs
     internal_manager:
-        dir_name: Manager 内部管理服务（告警_AIOps_设备_知识等域）
-        title: Manager 内部管理服务（告警/AIOps/设备/知识等域）
+        dir_name: OnGrid Manager 内部服务（多业务域编排与持久化）
+        title: OnGrid Manager 内部服务（多业务域编排与持久化）
         scope:
             - internal/manager/
         source_files: []
@@ -300,8 +300,8 @@ modules:
             - path: web_frontend/settings_admin/integrations_marketplace
             - path: web_frontend/settings_admin/llm_agent
     internal_pkg:
-        dir_name: 内部共享基础设施库（配置_数据库_LLM_认证_隧道_可观测性客户端）
-        title: 内部共享基础设施库（配置/数据库/LLM/认证/隧道/可观测性客户端）
+        dir_name: 内部共享能力包集合（配置_鉴权_数据库_LLM_隧道_可观测性）
+        title: 内部共享能力包集合（配置/鉴权/数据库/LLM/隧道/可观测性）
         scope:
             - internal/pkg/
         source_files: []
@@ -396,8 +396,8 @@ modules:
             - path: internal_manager
             - path: web_frontend/app_shell
     web_frontend/api_client:
-        dir_name: 前端 API 客户端层
-        title: 前端 API 客户端层
+        dir_name: Web 前端 API 客户端与业务域封装
+        title: Web 前端 API 客户端与业务域封装
         scope:
             - web/src/api/
         source_files: []
@@ -456,8 +456,8 @@ modules:
         related_to:
             - path: internal_manager
     web_frontend/edges_topology:
-        dir_name: 边缘设备与拓扑管理页面
-        title: 边缘设备与拓扑管理页面
+        dir_name: 边缘设备与拓扑管理前端页面
+        title: 边缘设备与拓扑管理前端页面
         scope:
             - web/src/pages/Edges.tsx
             - web/src/pages/EdgeDetail.tsx

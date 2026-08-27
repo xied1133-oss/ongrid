@@ -46,9 +46,9 @@ func NewGetProcessListTool(caller Caller, edges *edgebiz.Usecase, devices *devic
 
 // GetProcessListBatchArgs is the typed form of the batch schema.
 type GetProcessListBatchArgs struct {
-	DeviceIDs []uint64 `json:"device_ids"`
-	TopN      uint32   `json:"top_n"`
-	SortBy    string   `json:"sort_by"`
+	DeviceIDs LenientIDList `json:"device_ids"`
+	TopN      uint32        `json:"top_n"`
+	SortBy    string        `json:"sort_by"`
 }
 
 // ProcessListResultEntry is one slot in the batch envelope.

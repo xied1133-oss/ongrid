@@ -144,10 +144,10 @@ const bashBatchTimeout = 120 * time.Second
 
 // bashBatchArgs is the typed form of BashSchema.
 type bashBatchArgs struct {
-	DeviceIDs      []uint64 `json:"device_ids"`
-	DeviceID       uint64   `json:"device_id"`
-	Cmd            string   `json:"cmd"`
-	TimeoutSeconds int      `json:"timeout_seconds"`
+	DeviceIDs      LenientIDList `json:"device_ids"`
+	DeviceID       LenientID     `json:"device_id"`
+	Cmd            string        `json:"cmd"`
+	TimeoutSeconds int           `json:"timeout_seconds"`
 }
 
 // HostBashProposer queues a mutating host_bash command for inline human
@@ -312,7 +312,7 @@ func (t *BashTool) InvokableRun(ctx context.Context, argsJSON string, opts ...ba
 		return "", fmt.Errorf("%s: bad args: %w", ToolNameBash, err)
 	}
 	if len(in.DeviceIDs) == 0 && in.DeviceID != 0 {
-		in.DeviceIDs = []uint64{in.DeviceID}
+		in.DeviceIDs = []uint64{uint64(in.DeviceID)}
 	}
 	if err := validateBatchIDs("device_ids", in.DeviceIDs); err != nil {
 		return "", fmt.Errorf("%s: %w", ToolNameBash, err)
