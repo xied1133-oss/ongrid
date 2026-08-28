@@ -4,6 +4,7 @@
 **本文引用的文件**
 - [deploy/install/prometheus/prometheus.yml](file://deploy/install/prometheus/prometheus.yml)
 - [deploy/prometheus/prometheus.yml](file://deploy/prometheus/prometheus.yml)
+- [deploy/docker-compose.yml](file://deploy/docker-compose.yml)
 - [deploy/install/prometheus-rules.yml](file://deploy/install/prometheus-rules.yml)
 - [internal/pkg/prom/prom.go](file://internal/pkg/prom/prom.go)
 - [internal/pkg/prom/manager_metrics.go](file://internal/pkg/prom/manager_metrics.go)
@@ -26,6 +27,13 @@
 - [internal/edgeagent/plugins/metrics/scrape_test.go](file://internal/edgeagent/plugins/metrics/scrape_test.go)
 - [internal/manager/server/metric/prom_handler_test.go](file://internal/manager/server/metric/prom_handler_test.go)
 </cite>
+
+## 更新摘要
+**所做更改**
+- 更新了开发环境抓取配置，将管理器目标从容器主机名 `ongrid:9100` 更改为 `host.docker.internal:9100`
+- 添加了本地开发环境支持说明，便于通过 `go run` 直接运行管理器时进行指标抓取
+- 增强了 Docker Compose 配置中 host.docker.internal 解析的说明
+- 更新了相关架构图和配置示例以反映新的开发环境设置
 
 ## 目录
 1. [简介](#简介)
@@ -66,7 +74,7 @@ I["告警规则组"] --> J["Prometheus 评估引擎"]
 ```
 
 图表来源
-- [deploy/prometheus/prometheus.yml:6-19](file://deploy/prometheus/prometheus.yml#L6-L19)
+- [deploy/prometheus/prometheus.yml:6-28](file://deploy/prometheus/prometheus.yml#L6-L28)
 - [internal/pkg/prom/prom.go:16-29](file://internal/pkg/prom/prom.go#L16-L29)
 - [internal/edgeagent/k8s/remote_write_scraper.go:135-189](file://internal/edgeagent/k8s/remote_write_scraper.go#L135-L189)
 - [internal/pkg/promwrite/client.go:126-176](file://internal/pkg/promwrite/client.go#L126-L176)
@@ -141,9 +149,11 @@ P-->>Q : 返回矩阵结果
   - static_configs.targets：静态目标列表
   - labels：附加标签用于区分环境与来源
 
+**更新** 开发环境已优化为使用 `host.docker.internal:9100` 而非容器主机名，便于通过 `go run` 直接运行管理器时进行指标抓取
+
 示例参考
-- 生产环境抓取配置
-- 开发环境抓取配置（包含对管理器自身的抓取）
+- 生产环境抓取配置（使用容器网络 `ongrid:9100`）
+- 开发环境抓取配置（使用 `host.docker.internal:9100`，支持本地调试）
 
 章节来源
 - [deploy/install/prometheus/prometheus.yml:6-20](file://deploy/install/prometheus/prometheus.yml#L6-L20)
@@ -349,6 +359,11 @@ API --> PROM
   - 使用预聚合指标与分组聚合
   - 避免复杂函数链与全表扫描
 
+**新增** 本地开发环境排查
+- 如果无法抓取管理器指标，确认 Prometheus 容器能解析 `host.docker.internal`
+- 检查 Docker Compose 的 `extra_hosts` 配置是否正确映射
+- 验证管理器是否在宿主机端口 9100 上监听
+
 章节来源
 - [internal/edgeagent/plugins/metricscommon/scrape_test.go:16-53](file://internal/edgeagent/plugins/metricscommon/scrape_test.go#L16-L53)
 - [internal/edgeagent/plugins/metrics/scrape_test.go:94-121](file://internal/edgeagent/plugins/metrics/scrape_test.go#L94-L121)
@@ -356,6 +371,8 @@ API --> PROM
 
 ## 结论
 Ongrid 的 Prometheus 监控体系通过清晰的配置分层、严格的指标基数控制与健壮的远程写入机制，实现了从边缘到云端的可观测性闭环。结合告警规则与通知渠道，能够快速发现并响应异常。在生产环境中，应重点关注抓取间隔、指标基数、远程写入稳定性与查询性能，以确保系统的可观测性与可靠性。
+
+**更新** 开发环境现已优化，通过 `host.docker.internal:9100` 支持本地调试，开发者可以直接使用 `go run` 运行管理器而无需启动完整的 Docker 容器栈。
 
 ## 附录：关键配置清单
 - Prometheus 全局配置
@@ -371,9 +388,14 @@ Ongrid 的 Prometheus 监控体系通过清晰的配置分层、严格的指标�
 - 通知渠道
   - channel_type、enabled、match_severity_min、match_scope_types、rule-level 通道锁定
 
+**新增** 开发环境特定配置
+- Docker Compose extra_hosts 配置：`host.docker.internal:${ONGRID_HOST_GATEWAY:-host-gateway}`
+- 开发环境抓取目标：`host.docker.internal:9100` 替代容器主机名 `ongrid:9100`
+
 章节来源
 - [deploy/install/prometheus/prometheus.yml:6-20](file://deploy/install/prometheus/prometheus.yml#L6-L20)
 - [deploy/prometheus/prometheus.yml:6-28](file://deploy/prometheus/prometheus.yml#L6-L28)
+- [deploy/docker-compose.yml:247-253](file://deploy/docker-compose.yml#L247-L253)
 - [internal/edgeagent/collector/scrapecfg.go:12-90](file://internal/edgeagent/collector/scrapecfg.go#L12-L90)
 - [internal/pkg/promwrite/client.go:33-107](file://internal/pkg/promwrite/client.go#L33-L107)
 - [deploy/install/prometheus-rules.yml:7-79](file://deploy/install/prometheus-rules.yml#L7-L79)

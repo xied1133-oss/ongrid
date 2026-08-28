@@ -3,50 +3,16 @@ schema_version: 1
 locale: zh-CN
 branch: main
 nodes_managed: true
-exported_at: "2026-08-27T04:36:40Z"
+exported_at: "2026-08-28T14:38:31Z"
 modules:
     "":
-        dir_name: OnGrid 云边协同平台根工程
-        title: OnGrid 云边协同平台根工程
-        scope:
-            - README.md
-            - CONTRIBUTING.md
-            - Makefile
-            - go.mod
-            - go.sum
-            - ROADMAP.md
-            - SECURITY.md
-            - AGENTS.md
-            - CHANGELOG.md
-            - CODEOWNERS
-            - CODE_OF_CONDUCT.md
-            - LICENSE
-            - README_DE.md
-            - README_ES.md
-            - README_FR.md
-            - README_JA.md
-            - README_KO.md
-            - README_PT.md
-            - README_RU.md
-            - README_ZH.md
-            - ROADMAP.zh-CN.md
-            - TRADEMARK.md
-            - VERSION
+        dir_name: Ongrid 智能运维平台（多进程单体 + Edge Agent）
+        title: Ongrid 智能运维平台（多进程单体 + Edge Agent）
+        scope: []
         source_files: []
         children:
-            - api_specs
-            - cmd_ongrid
-            - cmd_ongrid_edge
-            - deploy_assets
-            - docs
-            - internal_edgeagent
-            - internal_iam
-            - internal_manager
-            - internal_pkg
-            - internal_skill
-            - scripts_and_skills
-            - tests
-            - web_frontend
+            - demo_a
+            - demo_b
         depends_on: []
         related_to: []
     api_specs:
@@ -94,6 +60,24 @@ modules:
             - path: internal_edgeagent/web_handlers
             - path: internal_pkg
             - path: scripts_and_skills
+    demo_a:
+        dir_name: demoA inventory-svc 库存服务（RCA 演示故障源）
+        title: demoA inventory-svc 库存服务（RCA 演示故障源）
+        scope:
+            - demoA/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    demo_b:
+        dir_name: order-svc 订单服务（RCA 演示 B 端）
+        title: order-svc 订单服务（RCA 演示 B 端）
+        scope:
+            - demoB/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
     deploy_assets:
         dir_name: 部署与数据库迁移资产
         title: 部署与数据库迁移资产
