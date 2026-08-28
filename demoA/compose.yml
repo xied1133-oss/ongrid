@@ -1,0 +1,21 @@
+# inventory-svc + 其 Redis 依赖。host 网络：容器直达主机 otelcol 4318，端口直接绑主机（避 9xxx 段）。
+services:
+  inventory-redis:
+    image: redis:7-alpine
+    container_name: inventory-redis
+    network_mode: host
+    restart: unless-stopped
+    command: ["redis-server", "--port", "16379", "--save", ""]
+    logging:
+      driver: journald   # 容器日志进 journald → edge logs 插件 → Loki
+
+  inventory-svc:
+    image: ongrid-demo/inventory-svc:latest
+    container_name: inventory-svc
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      REDIS_URL: redis://127.0.0.1:16379/0
+      OTEL_ENDPOINT: http://127.0.0.1:4318
+    logging:
+      driver: journald

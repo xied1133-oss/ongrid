@@ -1,0 +1,25 @@
+services:
+  order-svc:
+    image: ongrid-demo/order-svc:latest
+    container_name: order-svc
+    network_mode: host            # 容器直达主机 otelcol 4318 与 inventory-svc 18001
+    restart: unless-stopped
+    environment:
+      INVENTORY_URL: http://127.0.0.1:18001
+      DATABASE_URL: sqlite:////data/orders.db
+      OTEL_ENDPOINT: http://127.0.0.1:4318
+    volumes:
+      - order-data:/data
+    logging: { driver: journald } # 容器日志进 journald → Loki
+  loadgen:
+    image: ongrid-demo/order-svc:latest
+    container_name: order-loadgen
+    network_mode: host
+    restart: unless-stopped
+    command: ["python", "/srv/loadgen.py"]
+    environment:
+      ORDER_URL: http://127.0.0.1:18002
+    logging: { driver: journald }
+
+volumes:
+  order-data:
