@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { Github, ExternalLink, Scale, Tag } from 'lucide-react';
 import { useI18n } from '@/i18n/locale';
 import { getManagerVersion } from '@/api/version';
-import { OngridLogo } from '@/components/OngridLogo';
+import { BrandLogo } from '@/components/BrandLogo';
 
 const GITHUB_URL = 'https://github.com/ongridio/ongrid';
 const LICENSE = 'AGPL-3.0-only';
@@ -33,9 +33,9 @@ export default function About() {
     <div className="mx-auto max-w-2xl">
       <div className="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800/60 dark:bg-zinc-900/40">
         <div className="flex items-center gap-3">
-          <OngridLogo size={44} className="shrink-0" />
+          <BrandLogo size={44} className="shrink-0" />
           <div>
-            <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">Ongrid</h2>
+            <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">DeepWay</h2>
             <p className="text-xs text-zinc-500">{tr('AIOps 平台', 'AIOps platform')}</p>
           </div>
         </div>

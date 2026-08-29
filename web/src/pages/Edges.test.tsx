@@ -735,7 +735,7 @@ describe("EdgesPage", () => {
         HttpResponse.json({
           device_id: 140,
           device_kind: "switch",
-          vendor: "Ongrid Labs",
+          vendor: "DeepWay Labs",
           model: "VirtualSwitch 24",
           management_address: "10.20.0.3",
           bridge_base_mac: "b2:94:4a:34:5b:fb",
@@ -765,7 +765,7 @@ describe("EdgesPage", () => {
     expect(screen.queryByText("WebSSH 会话")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "批量安装设备" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "新建设备" })).not.toBeInTheDocument();
-    expect(await screen.findByText("Ongrid Labs · VirtualSwitch 24")).toBeInTheDocument();
+    expect(await screen.findByText("DeepWay Labs · VirtualSwitch 24")).toBeInTheDocument();
     expect(screen.queryByText("b2:94:4a:34:5b:fb")).not.toBeInTheDocument();
     expect(screen.queryByText("设备类型")).not.toBeInTheDocument();
     expect(screen.getByText("接口")).toBeInTheDocument();

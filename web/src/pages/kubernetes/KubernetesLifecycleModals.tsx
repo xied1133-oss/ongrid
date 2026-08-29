@@ -78,8 +78,8 @@ export function UninstallCommandModal({
         <ClusterIdentity cluster={cluster} />
         <div className="rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-1.5 text-amber-200">
           {tr(
-            '先在目标 Kubernetes 集群执行卸载命令，确认资源清理后再删除 Ongrid 侧集群记录。',
-            'Run the uninstall command in the target Kubernetes cluster before deleting the Ongrid cluster record.',
+            '先在目标 Kubernetes 集群执行卸载命令，确认资源清理后再删除 DeepWay 侧集群记录。',
+            'Run the uninstall command in the target Kubernetes cluster before deleting the DeepWay cluster record.',
           )}
         </div>
         <CommandBlock label={tr('卸载命令', 'Uninstall command')} command={kubernetesUninstallCommand(cluster)} />
@@ -167,15 +167,15 @@ export function DeleteClusterModal({
                 'This cluster is online or recently reported. Run the uninstall command in the target Kubernetes cluster first, otherwise the controller / node edge will keep running and retrying reports.',
               )
             : tr(
-                '该集群当前离线或同步时间已陈旧，可以删除 Ongrid 侧记录；如果目标集群仍存在，建议先执行卸载命令清理组件。',
-                'This cluster is offline or stale, so deleting the Ongrid record is allowed. If the target cluster still exists, run the uninstall command first to clean up components.',
+                '该集群当前离线或同步时间已陈旧，可以删除 DeepWay 侧记录；如果目标集群仍存在，建议先执行卸载命令清理组件。',
+                'This cluster is offline or stale, so deleting the DeepWay record is allowed. If the target cluster still exists, run the uninstall command first to clean up components.',
               )}
         </div>
         <CommandBlock label={tr('卸载命令', 'Uninstall command')} command={kubernetesUninstallCommand(cluster)} />
         <div className="rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 leading-5 text-red-200">
           {tr(
-            '删除记录会移除 Ongrid 侧集群、快照、接入 token 和拓扑镜像；它不会自动进入目标 Kubernetes 集群卸载 Helm release。',
-            'Deleting the record removes the Ongrid cluster, snapshots, enrollment token, and topology mirror. It does not uninstall the Helm release from the target Kubernetes cluster.',
+            '删除记录会移除 DeepWay 侧集群、快照、接入 token 和拓扑镜像；它不会自动进入目标 Kubernetes 集群卸载 Helm release。',
+            'Deleting the record removes the DeepWay cluster, snapshots, enrollment token, and topology mirror. It does not uninstall the Helm release from the target Kubernetes cluster.',
           )}
         </div>
       </div>

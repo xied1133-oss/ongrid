@@ -438,7 +438,7 @@ export function ChatInput({
       {showSkillsRow && (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <span className="rounded-full border border-zinc-800 bg-zinc-900/40 px-3 py-1 text-xs text-zinc-400">
-            {tr('为 Ongrid 添加技能', 'Add skills to Ongrid')}
+            {tr('为 DeepWay 添加技能', 'Add skills to DeepWay')}
           </span>
           <SkillIcon icon={Mail} label="Mail" />
           <SkillIcon icon={Slack} label="Slack" />

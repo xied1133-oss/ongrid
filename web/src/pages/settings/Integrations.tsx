@@ -539,7 +539,7 @@ function GrafanaCard() {
           'Fill in the Grafana root URL + Service Account Token. "Test" verifies the connection; "Sync" pushes managed datasources and default dashboards into the Grafana ',
         )}
         <code className="mx-1 font-mono text-zinc-400">ongrid</code>
-        {tr(' 文件夹。跳转过去仍然由用户在 Grafana 那边登录（Ongrid 不代登录）。', ' folder. Jumping to Grafana still requires the user to sign in there (Ongrid does not impersonate).')}
+        {tr(' 文件夹。跳转过去仍然由用户在 Grafana 那边登录（DeepWay 不代登录）。', ' folder. Jumping to Grafana still requires the user to sign in there (DeepWay does not impersonate).')}
       </p>
 
       {loading ? (

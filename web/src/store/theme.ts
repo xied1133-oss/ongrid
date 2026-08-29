@@ -6,15 +6,14 @@
 // re-render. Same trick we already use for the base accent in
 // src/styles/index.css — the picker just writes a different RGB triplet.
 //
-// Presets are hand-picked from the logo's two pillar gradients so each
-// option still feels on-brand:
-//   - 品牌紫  #8C6DF0  ← left pillar middle (default)
-//   - 玫粉    #F15BC7  ← left pillar top
-//   - 海蓝    #5269F4  ← left pillar bottom
-//   - 青色    #30A6D0  ← right pillar middle
-//   - 蓝绿    #57D6D8  ← right pillar bottom
-//   - 翡翠    #10b981  ← off-brand classic green, kept for users who
-//                       want a high-contrast non-purple option
+// Presets lead with the DeepWay brand blue (default); the rest are
+// hand-picked alternates kept for users who want a different highlight:
+//   - 品牌蓝  #3B76F0  ← DeepWay brand blue, lightened for dark UI (default)
+//   - 玫粉    #F15BC7
+//   - 海蓝    #5269F4
+//   - 青色    #30A6D0
+//   - 蓝绿    #57D6D8
+//   - 翡翠    #10b981  ← classic green, high-contrast non-blue option
 //
 // Custom hex isn't supported yet — keeps the picker honest about which
 // values land on a brand surface vs which would look out of place.
@@ -33,12 +32,12 @@ export type AccentPreset = {
 };
 
 const ACCENT_DEFS: Array<{ id: string; zh: string; en: string; rgb: string; hex: string }> = [
-  { id: 'brand-purple', zh: '品牌紫', en: 'Brand purple', rgb: '140 109 240', hex: '#8C6DF0' },
-  { id: 'rose',         zh: '玫粉',   en: 'Rose',          rgb: '241 91 199',  hex: '#F15BC7' },
-  { id: 'royal-blue',   zh: '海蓝',   en: 'Royal blue',    rgb: '82 105 244',  hex: '#5269F4' },
-  { id: 'cyan',         zh: '青色',   en: 'Cyan',          rgb: '48 166 208',  hex: '#30A6D0' },
-  { id: 'teal',         zh: '蓝绿',   en: 'Teal',          rgb: '87 214 216',  hex: '#57D6D8' },
-  { id: 'emerald',      zh: '翡翠',   en: 'Emerald',       rgb: '16 185 129',  hex: '#10b981' },
+  { id: 'brand-blue', zh: '品牌蓝', en: 'Brand blue',    rgb: '59 118 240',  hex: '#3B76F0' },
+  { id: 'rose',       zh: '玫粉',   en: 'Rose',          rgb: '241 91 199',  hex: '#F15BC7' },
+  { id: 'royal-blue', zh: '海蓝',   en: 'Royal blue',    rgb: '82 105 244',  hex: '#5269F4' },
+  { id: 'cyan',       zh: '青色',   en: 'Cyan',          rgb: '48 166 208',  hex: '#30A6D0' },
+  { id: 'teal',       zh: '蓝绿',   en: 'Teal',          rgb: '87 214 216',  hex: '#57D6D8' },
+  { id: 'emerald',    zh: '翡翠',   en: 'Emerald',       rgb: '16 185 129',  hex: '#10b981' },
 ];
 
 export const ACCENT_PRESETS: AccentPreset[] = ACCENT_DEFS.map((d) => {
@@ -47,7 +46,7 @@ export const ACCENT_PRESETS: AccentPreset[] = ACCENT_DEFS.map((d) => {
   return obj;
 });
 
-const DEFAULT_PRESET_ID = 'brand-purple';
+const DEFAULT_PRESET_ID = 'brand-blue';
 
 type ThemeState = {
   accentId: string;

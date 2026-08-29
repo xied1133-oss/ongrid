@@ -157,7 +157,7 @@ describe('EdgeDetailPage network device layout', () => {
           device_kind: 'network',
           management_address: '10.20.0.3',
           sys_name: 'ongrid-netdev-b',
-          vendor: 'Ongrid Lab',
+          vendor: 'DeepWay Lab',
           model: 'Virtual Switch',
           reachability_status: 'reachable',
           discovery_source: 'snmp',
@@ -181,7 +181,7 @@ describe('EdgeDetailPage network device layout', () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByText('Ongrid Lab')).toBeInTheDocument();
+    expect(await screen.findByText('DeepWay Lab')).toBeInTheDocument();
     expect(screen.getByText('可达')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '概览' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '接口' })).toBeInTheDocument();
