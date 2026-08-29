@@ -38,7 +38,7 @@ import {
 } from 'lucide-react';
 import { Avatar } from './Avatar';
 import { AgentBadge } from './AgentBadge';
-import { OngridLogo } from './OngridLogo';
+import { BrandLogo } from './BrandLogo';
 import { useI18n } from '@/i18n/locale';
 import { useThemeMode } from '@/store/mode';
 import { Sun, Moon, Monitor, Languages } from 'lucide-react';
@@ -72,7 +72,7 @@ export function Sidebar() {
   // /v1/users/{id} 改的，比 email 在 sidebar / user menu 里更友好。
   const { me } = useMe();
   const { isAdmin } = usePermissions();
-  const displayName = (me?.display_name?.trim() || email) ?? tr('Ongrid 用户', 'Ongrid user');
+  const displayName = (me?.display_name?.trim() || email) ?? tr('DeepWay 用户', 'DeepWay user');
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -240,10 +240,10 @@ export function Sidebar() {
           type="button"
           onClick={toggleSidebar}
           aria-label={tr('展开侧边栏', 'Expand sidebar')}
-          title={tr('Ongrid · 点击展开', 'Ongrid · click to expand')}
+          title={tr('DeepWay · 点击展开', 'DeepWay · click to expand')}
           className="rounded-lg p-1 hover:bg-zinc-800/60"
         >
-          <OngridLogo size={34} />
+          <BrandLogo size={34} />
         </button>
         <button
           type="button"
@@ -350,11 +350,11 @@ export function Sidebar() {
       <div className="flex items-center gap-1.5 border-b border-zinc-800/60 px-3 py-3">
         <Link
           to="/"
-          aria-label={tr('Ongrid 首页', 'Ongrid home')}
+          aria-label={tr('DeepWay 首页', 'DeepWay home')}
           className="flex min-w-0 items-center gap-1.5 rounded-lg px-1 py-1 -ml-1 hover:bg-zinc-800/40"
         >
-          <OngridLogo size={32} className="-mr-0.5 shrink-0" />
-          <span className="text-[16px] font-semibold tracking-tight text-zinc-100">Ongrid</span>
+          <BrandLogo size={32} className="-mr-0.5 shrink-0" />
+          <span className="text-[16px] font-semibold tracking-tight text-zinc-100">DeepWay</span>
           {/* Version moved to Settings → About (the brand mark stays clean). */}
         </Link>
         {/* Version + upgrade CTA moved to Settings → About / Upgrade — the brand

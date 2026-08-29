@@ -7,23 +7,23 @@
    via tailwind's color extension (`rgb(var(--token) / <alpha-value>)`).
    Light/branded themes can later override `:root.<theme>` selectors. */
 :root.dark {
-  /* Background palette tinted ~3% toward the brand purple (#8C6DF0)
-     so the canvas feels related to the logo without going purple-loud.
-     Pure zinc-950 read as "anonymous black"; this reads as "Ongrid". */
-  --bg: 11 11 17;           /* near-zinc-950 + tiny purple cast */
-  --card: 23 23 32;         /* near-zinc-900 + tiny purple cast */
-  --card-soft: 23 23 32 / 0.4;
+  /* Background palette tinted ~3% toward the brand blue (#00339D)
+     so the canvas feels related to the logo without going blue-loud.
+     Pure zinc-950 read as "anonymous black"; this reads as "DeepWay". */
+  --bg: 10 12 18;           /* near-zinc-950 + tiny blue cast */
+  --card: 22 24 32;         /* near-zinc-900 + tiny blue cast */
+  --card-soft: 22 24 32 / 0.4;
   --border: 40 40 50;       /* near-zinc-800 + cool */
   --border-soft: 40 40 50 / 0.6;
   --text: 244 244 245;      /* zinc-100 — unchanged for legibility */
   --text-muted: 161 161 170;
   --text-faint: 113 113 122;
-  /* Brand accent — middle stop of the logo's left pillar (#8C6DF0).
-     Within RGB rounding of violet-500 but pinned to the design token. */
-  --accent: 140 109 240;
+  /* Brand accent — DeepWay brand blue lightened for dark surfaces
+     (pure #00339D sits too dark on zinc-900 to carry CTAs). */
+  --accent: 59 118 240;
   --accent-fg: 255 255 255;
-  /* Info reads off the right pillar's mid-stop (#30A6D0) so badges /
-     informational chips feel related to the brand rather than generic blue. */
+  /* Info keeps a sky/cyan hue so informational chips stay distinct
+     from the brand-blue accent. */
   --info: 48 166 208;
   --warn: 245 158 11;      /* amber-500 */
   --ok: 16 185 129;        /* emerald-500 */
@@ -45,7 +45,7 @@
   --text: 17 24 39;           /* slate-900 */
   --text-muted: 71 85 105;    /* slate-600 */
   --text-faint: 100 116 139;  /* slate-500 */
-  --accent: 109 87 217;       /* slightly desaturated brand purple */
+  --accent: 0 51 157;       /* DeepWay brand blue #00339D */
   --accent-fg: 255 255 255;
   --info: 14 116 144;         /* cyan-700 for AA on white */
   --warn: 180 83 9;           /* amber-700 */

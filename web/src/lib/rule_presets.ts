@@ -76,8 +76,8 @@ const PRESET_DEFS: RulePresetDef[] = [
     suggestedKey: 'manager_down',
     nameZh: 'Manager 失联',
     nameEn: 'Manager unreachable',
-    hintZh: 'Prom 直接 scrape Ongrid manager 失败 ⇒ manager 进程挂了 / 网络断了。比 prom_write_total 可靠（不需要 remote_write 通畅）。',
-    hintEn: "Prom scrape of the Ongrid manager fails — manager process down or network broken. More reliable than prom_write_total (doesn't depend on remote_write).",
+    hintZh: 'Prom 直接 scrape DeepWay manager 失败 ⇒ manager 进程挂了 / 网络断了。比 prom_write_total 可靠（不需要 remote_write 通畅）。',
+    hintEn: "Prom scrape of the DeepWay manager fails — manager process down or network broken. More reliable than prom_write_total (doesn't depend on remote_write).",
     exprPreview: 'up{job="ongrid-manager"} == 0',
     group: '平台健康',
     draftBase: {

@@ -4,7 +4,7 @@ import { Loader2 } from 'lucide-react';
 import { login } from '@/api/auth';
 import { useAuth } from '@/store/auth';
 import { ApiError } from '@/api/client';
-import { OngridLogo } from '@/components/OngridLogo';
+import { BrandLogo } from '@/components/BrandLogo';
 import { useI18n } from '@/i18n/locale';
 
 export default function LoginPage() {
@@ -52,7 +52,7 @@ export default function LoginPage() {
         className="pointer-events-none absolute inset-0 overflow-hidden"
         style={{
           background:
-            'radial-gradient(circle at 30% 20%, rgba(140,109,240,0.12), transparent 55%), radial-gradient(circle at 70% 80%, rgba(48,166,208,0.10), transparent 55%)',
+            'radial-gradient(circle at 30% 20%, rgba(0,51,157,0.16), transparent 55%), radial-gradient(circle at 70% 80%, rgba(59,118,240,0.10), transparent 55%)',
         }}
       />
 
@@ -60,9 +60,9 @@ export default function LoginPage() {
       <div className="relative w-full max-w-sm rounded-2xl border border-zinc-800 bg-zinc-900/80 p-7 shadow-xl backdrop-blur">
         <div className="mb-6 text-center">
           <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center">
-            <OngridLogo size={72} />
+            <BrandLogo size={72} />
           </div>
-          <h1 className="text-xl font-semibold text-zinc-100">{tr('登录到 Ongrid', 'Sign in to Ongrid')}</h1>
+          <h1 className="text-xl font-semibold text-zinc-100">{tr('登录到 DeepWay', 'Sign in to DeepWay')}</h1>
           <p className="mt-1 text-xs text-zinc-500">{tr('AIOps 工作台', 'AIOps Workbench')}</p>
         </div>
 
@@ -114,11 +114,11 @@ export default function LoginPage() {
             disabled={pending || !email || !password}
             aria-label={tr('登录', 'Sign in')}
             style={{
-              // Brand gradient lifted from the logo's left pillar — keeps
-              // the primary CTA visually anchored to the brand. Hover
-              // ramps brightness; disabled uses inherited opacity.
+              // DeepWay brand blue gradient — keeps the primary CTA
+              // visually anchored to the brand. Hover ramps brightness;
+              // disabled uses inherited opacity.
               backgroundImage:
-                'linear-gradient(135deg, #8C6DF0 0%, #5269F4 100%)',
+                'linear-gradient(135deg, #3B76F0 0%, #00339D 100%)',
             }}
             className="inline-flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-white shadow-md transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
           >

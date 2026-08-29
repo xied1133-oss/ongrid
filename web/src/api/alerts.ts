@@ -279,12 +279,12 @@ export const SCOPE_LABEL = new Proxy({} as Record<'host' | 'global' | 'monitorin
 const SCOPE_HINT_ZH = {
   host: '每台机器一条 incident，evaluator 按设备分组',
   global: '整条查询一条 incident，跨主机聚合',
-  monitoring_pipeline: 'Ongrid 自我观测（manager / 通知投递 / Prom write 健康）',
+  monitoring_pipeline: 'DeepWay 自我观测（manager / 通知投递 / Prom write 健康）',
 } as const;
 const SCOPE_HINT_EN = {
   host: 'One incident per host; evaluator groups by device',
   global: 'One incident per query; aggregated across hosts',
-  monitoring_pipeline: 'Ongrid self-observability (manager / notify delivery / Prom write health)',
+  monitoring_pipeline: 'DeepWay self-observability (manager / notify delivery / Prom write health)',
 } as const;
 export const SCOPE_HINT = new Proxy({} as Record<'host' | 'global' | 'monitoring_pipeline', string>, {
   get: (_t, k: string) => trInline(SCOPE_HINT_ZH[k as keyof typeof SCOPE_HINT_ZH] ?? k, SCOPE_HINT_EN[k as keyof typeof SCOPE_HINT_EN] ?? k),

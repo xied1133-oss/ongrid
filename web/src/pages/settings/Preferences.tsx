@@ -102,8 +102,8 @@ export default function SettingsPreferences() {
         </div>
         <p className="mb-3 text-xs text-zinc-500">
           {tr(
-            '选择一种品牌色作为高亮 / CTA / 当前选中态。来源自 Ongrid logo 的两束渐变。',
-            'Pick a brand color for highlights, primary CTAs, and active state. Drawn from the two gradients in the Ongrid logo.',
+            '选择一种品牌色作为高亮 / CTA / 当前选中态。默认为 DeepWay 品牌蓝。',
+            'Pick a brand color for highlights, primary CTAs, and active state. Defaults to the DeepWay brand blue.',
           )}
         </p>
         <div className="flex flex-wrap gap-2">

@@ -16,7 +16,7 @@ export async function login(page: Page) {
   await page.getByLabel(/密码|Password/).fill(password);
   await page.getByRole('button', { name: /登录|Sign in/ }).click();
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByRole('link', { name: /Ongrid (首页|home)/ })).toBeVisible();
+  await expect(page.getByRole('link', { name: /DeepWay (首页|home)/ })).toBeVisible();
 }
 
 export function trackPageErrors(page: Page) {
