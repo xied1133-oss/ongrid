@@ -67,12 +67,14 @@ var expandTopologySchema = json.RawMessage(`{
 // expandTopologyArgs mirrors expandTopologySchema. The LLM marshals
 // either node_id or device_id; we resolve the latter via the device
 // usecase's Get + the Device.NodeID column populated by PR-2.
+// ID/depth 走容错类型：量化小模型常把数字传成字符串（见
+// lenient_args.go 实证），严格 unmarshal 会整轮报废。
 type expandTopologyArgs struct {
-	NodeID          uint64 `json:"node_id,omitempty"`
-	DeviceID        uint64 `json:"device_id,omitempty"`
-	Depth           int    `json:"depth,omitempty"`
-	OnlyPropagating *bool  `json:"only_propagating,omitempty"`
-	Direction       string `json:"direction,omitempty"`
+	NodeID          LenientID  `json:"node_id,omitempty"`
+	DeviceID        LenientID  `json:"device_id,omitempty"`
+	Depth           LenientInt `json:"depth,omitempty"`
+	OnlyPropagating *bool      `json:"only_propagating,omitempty"`
+	Direction       string     `json:"direction,omitempty"`
 }
 
 // expandTopologyHit is one reachable node + the path metadata the LLM
@@ -165,12 +167,12 @@ func (t *ExpandTopologyTool) InvokableRun(ctx context.Context, argsJSON string, 
 	// Resolve start node — device_id path needs Device.NodeID populated
 	// (PR-2 backfill takes care of legacy rows; new registers fill it
 	// via NodeMirror).
-	startID := in.NodeID
+	startID := uint64(in.NodeID)
 	if startID == 0 {
 		if t.devices == nil {
 			return "", fmt.Errorf("expand_topology: device_id supplied but device usecase not configured")
 		}
-		dev, err := t.devices.Get(callCtx, in.DeviceID)
+		dev, err := t.devices.Get(callCtx, uint64(in.DeviceID))
 		if err != nil {
 			return "", fmt.Errorf("expand_topology: resolve device %d: %w", in.DeviceID, err)
 		}
@@ -220,7 +222,7 @@ func (t *ExpandTopologyTool) InvokableRun(ctx context.Context, argsJSON string, 
 	for head := 0; head < len(queue); head++ {
 		cur := queue[head]
 		hops := visited[cur].hops
-		if hops >= in.Depth {
+		if hops >= int(in.Depth) {
 			continue
 		}
 		for _, r := range allRel {
@@ -312,7 +314,7 @@ func (t *ExpandTopologyTool) InvokableRun(ctx context.Context, argsJSON string, 
 			NodeName: center.Name,
 			NodeType: center.Type,
 		},
-		Hops:  in.Depth,
+		Hops:  int(in.Depth),
 		Count: len(hits),
 		Hits:  hits,
 	}

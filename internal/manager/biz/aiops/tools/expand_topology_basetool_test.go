@@ -3,6 +3,7 @@ package tools_test
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -165,6 +166,35 @@ func TestExpandTopologyRequiresStart(t *testing.T) {
 		t.Fatalf("expected error when neither node_id nor device_id supplied")
 	}
 }
+
+// 量化小模型常把数字参数传成字符串（实证见 lenient_args.go），
+// 工具必须容忍而不是整轮报 bad args。
+func TestExpandTopologyLenientArgs(t *testing.T) {
+	uc := newTopologyUC(t)
+	_, orderID, _, _ := seedGraph(t, uc)
+	tool := aiopstools.NewExpandTopologyTool(uc, nil, nil)
+
+	for name, args := range map[string]string{
+		"string ids":      `{"node_id":"` + itoa(orderID) + `","depth":"1"}`,
+		"schema echo":     `{"node_id":{"item":` + itoa(orderID) + `},"depth":1}`,
+		"normal (no reg)": `{"node_id":` + itoa(orderID) + `}`,
+	} {
+		out, err := tool.InvokableRun(context.Background(), args)
+		if err != nil {
+			t.Errorf("%s: invoke: %v", name, err)
+			continue
+		}
+		if !strings.Contains(out, `"node_name":"db"`) {
+			t.Errorf("%s: db not reachable, output: %s", name, out)
+		}
+	}
+	// 真正非法的值仍然要报错。
+	if _, err := tool.InvokableRun(context.Background(), `{"node_id":"abc"}`); err == nil {
+		t.Errorf("expected error for non-numeric node_id string")
+	}
+}
+
+func itoa(v uint64) string { return strconv.FormatUint(v, 10) }
 
 func TestFindTopologyNodeSubstring(t *testing.T) {
 	uc := newTopologyUC(t)

@@ -177,3 +177,8 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 	modernc.org/sqlite v1.42.2 // indirect
 )
+
+// 上游 v0.9.1 processLoop 存在 send-on-closed-channel 竞态（可带崩宿主进程），
+// 本地副本已修复（见 third_party/dingtalk-stream-sdk-go/client/client.go 补丁注释）；
+// 上游发布修复版本后移除本 replace 与副本。
+replace github.com/open-dingtalk/dingtalk-stream-sdk-go => ./third_party/dingtalk-stream-sdk-go
