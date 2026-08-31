@@ -6,12 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/open-dingtalk/dingtalk-stream-sdk-go/card"
 	"io"
 	"net/http"
 	"net/url"
 	"sync"
 	"time"
+
+	"github.com/open-dingtalk/dingtalk-stream-sdk-go/card"
 
 	"github.com/gorilla/websocket"
 
