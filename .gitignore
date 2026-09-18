@@ -1,4 +1,6 @@
-.qoder
+.qoder/
+docs/
 .cache
 .cache/edge-serve/edge/ongrid-edge-linux-amd64
 .cache/edge-serve/edge/ongrid-edge-linux-amd64
+
