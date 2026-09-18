@@ -24,6 +24,10 @@ ENV GOPROXY=${GOPROXY}
 WORKDIR /app
 
 COPY go.mod go.sum ./
+# third_party ships with go.mod: the local `replace` of
+# dingtalk-stream-sdk-go makes `go mod download` read the replacement
+# module's go.mod before the full COPY . . below.
+COPY third_party ./third_party
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 

@@ -72,6 +72,14 @@ var tierByName = map[string]string{
 	"grep_source":             "core",
 	"query_devices":           "core",
 	"get_topology":            "core",
+	// Topology walk pair — the incident-investigator persona's mandatory
+	// "拓扑影响面" section depends on find_topology_node → expand_topology.
+	// Both schemas are tiny; leaving them specialty means redaction hides
+	// their parameters once the bag overflows the threshold, and small
+	// models never call ToolSearch to recover them — observed in
+	// production as RCA reports silently dropping the topology section.
+	"expand_topology":    "core",
+	"find_topology_node": "core",
 	"query_incidents":         "core",
 	"query_change_events":     "core",
 	"get_edge_summary":        "core",

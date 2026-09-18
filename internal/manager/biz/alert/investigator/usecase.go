@@ -723,8 +723,24 @@ func renderAlertPrompt(in *alertmodel.Incident, locale string) string {
 	if in.Description != "" {
 		b.WriteString(fmt.Sprintf("  description: %s\n", in.Description))
 	}
-	b.WriteString("\nStart with correlate_incident to pull metrics + logs + traces + topology around the fire window. ")
+	b.WriteString("\nStart with correlate_incident to pull metrics + logs + traces + edge + the topology_impact panel around the fire window. ")
 	b.WriteString("Then drill in to identify the specific process / service / time. End with a clear root-cause paragraph.\n")
+	// Topology mandate mirrored into the user prompt — the persona's
+	// system-level "拓扑影响面必做" section gets sacrificed under the
+	// hard budget below (small models obey user-message constraints
+	// more strictly). correlate_incident now returns a server-computed
+	// topology_impact panel (center node + propagating blast radius), so
+	// the model no longer spends budgeted calls discovering it — it just
+	// writes up what it's handed. This is the fix for reports silently
+	// dropping the 拓扑影响面 section: the old prompt told the model to
+	// call find_topology_node + expand_topology itself, which small
+	// models never did under the 10-call budget (proved in prod: every
+	// incident-8 investigation skipped topology while an explicit user
+	// request could still drive the tools fine).
+	b.WriteString("\nTOPOLOGY (mandatory): correlate_incident already returns a topology_impact panel — the failing node (center) plus everything within 2 propagating hops (depends_on / deployed_on / routes_to). ")
+	b.WriteString("Write the report's 拓扑影响面 section DIRECTLY from that panel: list the affected upstream / downstream nodes with their hop distance. ")
+	b.WriteString("If the panel is absent (skipped.topology_impact) or its affected list is empty, state 拓扑无数据，影响面未评估 or 影响面局限于自身 accordingly. ")
+	b.WriteString("Only call expand_topology yourself if you must trace beyond 2 hops. Never skip the section silently.\n")
 	// HARD budget — keep it in the user prompt because models (especially
 	// GLM / non-frontier) follow user-message constraints more strictly
 	// than system-message ones. Without this, repeated empty logql/promql

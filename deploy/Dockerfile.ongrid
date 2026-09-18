@@ -30,7 +30,11 @@ RUN set -eux; \
 # cache across image rebuilds — without it every package run repays
 # the ~150s mod-download cost. Requires syntax=docker/dockerfile:1.7
 # (declared at the top of this file).
+# third_party is copied alongside go.mod because go.mod's local
+# `replace` of dingtalk-stream-sdk-go makes `go mod download` read
+# the replacement module's go.mod before the full COPY below.
 COPY go.mod go.sum ./
+COPY third_party ./third_party
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 

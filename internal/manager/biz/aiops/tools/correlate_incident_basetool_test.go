@@ -14,7 +14,7 @@ import (
 )
 
 func TestCorrelateIncidentTool_Info(t *testing.T) {
-	tool := NewCorrelateIncidentTool(&fakeAlertUC{}, nil, nil, nil, nil, nil, nil)
+	tool := NewCorrelateIncidentTool(&fakeAlertUC{}, nil, nil, nil, nil, nil, nil, nil)
 	info, err := tool.Info(context.Background())
 	if err != nil {
 		t.Fatalf("Info: %v", err)
@@ -48,7 +48,7 @@ func TestCorrelateIncidentTool_BatchHappy_SkipsAll(t *testing.T) {
 		},
 	}
 	// Pass nil for prom/log/trace — each bundle skips all 3 panels with reasons.
-	tool := NewCorrelateIncidentTool(uc, nil, nil, nil, nil, nil, slog.Default())
+	tool := NewCorrelateIncidentTool(uc, nil, nil, nil, nil, nil, nil, slog.Default())
 	out, err := tool.InvokableRun(context.Background(), `{"incident_ids":[1,2],"window_minutes":30}`)
 	if err != nil {
 		t.Fatalf("InvokableRun: %v", err)
@@ -83,7 +83,7 @@ func TestCorrelateIncidentTool_BatchPartialSuccess(t *testing.T) {
 			// 99 absent → not found.
 		},
 	}
-	tool := NewCorrelateIncidentTool(uc, nil, nil, nil, nil, nil, nil)
+	tool := NewCorrelateIncidentTool(uc, nil, nil, nil, nil, nil, nil, nil)
 	out, err := tool.InvokableRun(context.Background(), `{"incident_ids":[1,99]}`)
 	if err != nil {
 		t.Fatalf("InvokableRun: %v", err)
@@ -99,7 +99,7 @@ func TestCorrelateIncidentTool_BatchPartialSuccess(t *testing.T) {
 }
 
 func TestCorrelateIncidentTool_BadArgs(t *testing.T) {
-	tool := NewCorrelateIncidentTool(&fakeAlertUC{}, nil, nil, nil, nil, nil, nil)
+	tool := NewCorrelateIncidentTool(&fakeAlertUC{}, nil, nil, nil, nil, nil, nil, nil)
 	if _, err := tool.InvokableRun(context.Background(), `not json`); err == nil {
 		t.Errorf("expected error for non-JSON")
 	}
@@ -112,7 +112,7 @@ func TestCorrelateIncidentTool_BadArgs(t *testing.T) {
 }
 
 func TestCorrelateIncidentTool_NilAlert(t *testing.T) {
-	tool := NewCorrelateIncidentTool(nil, nil, nil, nil, nil, nil, nil)
+	tool := NewCorrelateIncidentTool(nil, nil, nil, nil, nil, nil, nil, nil)
 	if _, err := tool.InvokableRun(context.Background(), `{"incident_ids":[1]}`); err == nil {
 		t.Errorf("expected early error when alertUC nil")
 	}
@@ -120,7 +120,7 @@ func TestCorrelateIncidentTool_NilAlert(t *testing.T) {
 
 func TestCorrelateIncidentTool_QueryTracePanelScopesToDevice(t *testing.T) {
 	tq := &fakeTraceQuerier{resp: &tracequery.SearchResult{Traces: json.RawMessage("[]")}}
-	tool := NewCorrelateIncidentTool(nil, nil, nil, tq, nil, nil, nil)
+	tool := NewCorrelateIncidentTool(nil, nil, nil, tq, nil, nil, nil, nil)
 	deviceID := uint64(24)
 
 	if _, err := tool.queryTracePanel(context.Background(), "web", &deviceID, time.Now().Add(-time.Hour), time.Now()); err != nil {
@@ -135,7 +135,7 @@ func TestCorrelateIncidentTool_QueryTracePanelScopesToDevice(t *testing.T) {
 }
 
 func TestCorrelateIncidentTool_TooManyIDs(t *testing.T) {
-	tool := NewCorrelateIncidentTool(&fakeAlertUC{}, nil, nil, nil, nil, nil, nil)
+	tool := NewCorrelateIncidentTool(&fakeAlertUC{}, nil, nil, nil, nil, nil, nil, nil)
 	ids := make([]uint64, batchMaxIDs+1)
 	for i := range ids {
 		ids[i] = uint64(i + 1)
@@ -149,7 +149,7 @@ func TestCorrelateIncidentTool_TooManyIDs(t *testing.T) {
 
 func TestCorrelateIncidentTool_GetIncidentError(t *testing.T) {
 	uc := &fakeAlertUC{getIncidentErr: errors.New("db down")}
-	tool := NewCorrelateIncidentTool(uc, nil, nil, nil, nil, nil, nil)
+	tool := NewCorrelateIncidentTool(uc, nil, nil, nil, nil, nil, nil, nil)
 	out, err := tool.InvokableRun(context.Background(), `{"incident_ids":[1]}`)
 	if err != nil {
 		t.Fatalf("expected envelope return, got tool-level error: %v", err)

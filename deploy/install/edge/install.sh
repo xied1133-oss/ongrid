@@ -377,7 +377,11 @@ RestartSec=5
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
 NoNewPrivileges=true
 ProtectSystem=strict
-ProtectHome=true
+# ProtectHome=true hides /home from the agent and its subprocesses entirely:
+# the logs plugin filelog receiver then silently matches zero files for any
+# business log living under /home (no error, no records). read-only keeps the
+# hardening (no writes to home dirs) while letting collectors tail user logs.
+ProtectHome=read-only
 PrivateTmp=true
 # StateDirectory auto-creates /var/lib/ongrid-edge at start and implicitly
 # adds it to ReadWritePaths. Without this, ProtectSystem=strict makes /var/lib

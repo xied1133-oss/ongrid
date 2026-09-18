@@ -398,8 +398,13 @@ mkdir -p "$INSTALL_DIR"
 chmod 755 "$INSTALL_DIR"
 ongrid_prune_stale_edge_staging "$INSTALL_DIR"
 
-EDGE_ASSET_VERSION=$(tr -d '[:space:]' < "$SCRIPT_DIR/VERSION" 2>/dev/null || true)
-if [[ -z "$EDGE_ASSET_VERSION" ]]; then
+# VERSION ships only in release packages (dist/package.sh writes it); a raw
+# source checkout falls back to the repo-root VERSION, then .env.example.
+if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
+    EDGE_ASSET_VERSION=$(tr -d '[:space:]' < "$SCRIPT_DIR/VERSION")
+elif [[ -f "$SCRIPT_DIR/../../VERSION" ]]; then
+    EDGE_ASSET_VERSION=$(tr -d '[:space:]' < "$SCRIPT_DIR/../../VERSION")
+else
     EDGE_ASSET_VERSION=$(grep -E '^ONGRID_VERSION=' "$SCRIPT_DIR/.env.example" | cut -d= -f2- | tr -d '[:space:]' || true)
 fi
 [[ -n "$EDGE_ASSET_VERSION" ]] || { log_error "cannot determine Edge asset version"; exit 1; }
@@ -427,6 +432,30 @@ prepare_edge_assets() {
     # build-edge-bundle.sh, which is why those need the relaxed umask rather
     # than a chmod here.
     find "$EDGE_STAGE_DIR" -maxdepth 1 -name '*.sh' -exec chmod 755 {} \;
+    # Source-checkout compatibility. Release packaging (dist/package.sh) copies
+    # apply-pending-upgrade.sh into edge/ and generates edge/edge-artifacts.env;
+    # a raw git checkout has neither, which used to make `sudo ./install.sh`
+    # from the repo fail. Derive both here so the source tree installs like a
+    # package; packaged layouts are unaffected (files already present).
+    if [[ ! -f "$EDGE_STAGE_DIR/apply-pending-upgrade.sh" && -f "$SCRIPT_DIR/apply-pending-upgrade.sh" ]]; then
+        install -m 0755 "$SCRIPT_DIR/apply-pending-upgrade.sh" "$EDGE_STAGE_DIR/apply-pending-upgrade.sh"
+        log_info "source checkout: staged edge/apply-pending-upgrade.sh from install root"
+    fi
+    if [[ ! -f "$EDGE_STAGE_DIR/edge-artifacts.env" && -f "$SCRIPT_DIR/../../Makefile" ]]; then
+        local mk="$SCRIPT_DIR/../../Makefile" o n pr myv pgv rv mv
+        o=$(sed -n 's/^OTELCOL_VERSION ?= *//p' "$mk" | head -n 1)
+        n=$(sed -n 's/^NODE_EXPORTER_VERSION ?= *//p' "$mk" | head -n 1)
+        pr=$(sed -n 's/^PROCESS_EXPORTER_VERSION ?= *//p' "$mk" | head -n 1)
+        myv=$(sed -n 's/^MYSQLD_EXPORTER_VERSION ?= *//p' "$mk" | head -n 1)
+        pgv=$(sed -n 's/^POSTGRES_EXPORTER_VERSION ?= *//p' "$mk" | head -n 1)
+        rv=$(sed -n 's/^REDIS_EXPORTER_VERSION ?= *//p' "$mk" | head -n 1)
+        mv=$(sed -n 's/^MONGODB_EXPORTER_VERSION ?= *//p' "$mk" | head -n 1)
+        if [[ -n "$o" && -n "$n" && -n "$pr" && -n "$myv" && -n "$pgv" && -n "$rv" && -n "$mv" ]]; then
+            printf 'ONGRID_EDGE_DEPS_TAG=edge-deps-layout2-o%s-n%s-pr%s-my%s-pg%s-r%s-m%s\n' \
+                "$o" "$n" "$pr" "$myv" "$pgv" "$rv" "$mv" > "$EDGE_STAGE_DIR/edge-artifacts.env"
+            log_info "source checkout: derived ONGRID_EDGE_DEPS_TAG from Makefile"
+        fi
+    fi
     [[ -r "$EDGE_STAGE_DIR/edge-assets-lib.sh" ]] || {
         log_error "package is missing edge/edge-assets-lib.sh"
         return 1
@@ -658,6 +687,9 @@ fi
 VERSION_FROM_FILE=""
 if [[ -f "$INSTALL_DIR/VERSION" ]]; then
     VERSION_FROM_FILE=$(tr -d '[:space:]' < "$INSTALL_DIR/VERSION" || true)
+elif [[ -f "$SCRIPT_DIR/../../VERSION" ]]; then
+    # Source checkout: INSTALL_DIR/VERSION is copied later; use repo root now.
+    VERSION_FROM_FILE=$(tr -d '[:space:]' < "$SCRIPT_DIR/../../VERSION" || true)
 fi
 if [[ -z "$VERSION_FROM_FILE" ]]; then
     VERSION_FROM_FILE=$(grep -E '^ONGRID_VERSION=' "$SCRIPT_DIR/.env.example" | cut -d= -f2- | tr -d '[:space:]' || true)

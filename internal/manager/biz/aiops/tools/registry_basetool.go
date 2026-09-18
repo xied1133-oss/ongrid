@@ -167,7 +167,7 @@ func (r *Registry) BuildBaseTools() *ToolBag {
 	// the closure path (NewRegistry).
 	if r.alertUC != nil && r.promQuery != nil && r.logQuery != nil && r.traceQuery != nil {
 		tool := NewCorrelateIncidentTool(
-			r.alertUC, r.promQuery, r.logQuery, r.traceQuery, r.edges, r.devices, r.log,
+			r.alertUC, r.promQuery, r.logQuery, r.traceQuery, r.edges, r.devices, r.topologyGraph, r.log,
 		)
 		out = append(out, tool)
 	}

@@ -69,7 +69,7 @@ metadata:
 
 0. **按需查 KB**：当用户明确问 runbook / 历史经验 / 处置流程，或第一轮 incident / metric / log / trace 证据不足以判断下一步时，用 `query_knowledge` 查一次（规则名 + 现象作 query，如"swap_high 告警怎么排查"）。命中（score ≥ 0.6）就按 playbook 推进，末尾标 `（参考 KB: <title>）`；否则先走结构化证据，不要为了形式先查 KB。
 1. **定症状 + 范围**：`get_incident_detail` 拉规则名 / severity / target / fired_at / labels。这是因果链的**末端（果）**，不是根因——别停在这。
-2. **排时间线，找首发**：`correlate_incident`（一次拿 metric/log/trace 三件套）+ related alerts，按 `fired_at` / 首次偏离时间排序。**最早偏离的那个**才是源头候选——下游的高 CPU / 高延迟通常是果不是因。别被"最显眼"的信号带跑，要找"最早"的。
+2. **排时间线，找首发**：`correlate_incident`（一次拿 metric/log/trace/edge + **拓扑影响面面板** topology_impact）+ related alerts，按 `fired_at` / 首次偏离时间排序。**最早偏离的那个**才是源头候选——下游的高 CPU / 高延迟通常是果不是因。别被"最显眼"的信号带跑，要找"最早"的。
 3. **因果上溯一步**：对当前候选问"它的上游 / 更早一层是谁"，挑最对口的一个工具（一步一个目的，别撒网）：
    - 改了什么 → `query_change_events`（around_ts=fired_at）查症状前后有没有人改过规则 / 配置 / 设备——**产品侧变更常常就是 0 号病人**（注意它看不到主机外部改动）
    - 依赖上游 → `expand_topology` 顺边往**上游**走（不是只看 blast-radius 往下）/ `find_topology_node`
@@ -81,6 +81,14 @@ metadata:
    - **或信号枯竭** → 上溯不动了，给"目前能到的最深一层 + 还缺什么信号才能继续"。
    叶子落在主机资源就 `get_host_processes(sort_by=cpu/mem)` 点名进程（**pid + 命令行**）；落在磁盘用 `host_find_large_files` 点名文件。
 5. **验证根因**：定位到的源头必须能解释整条下游链——时间上**先于**症状、量级 / 方向吻合。对不上就降级成"假设"，别硬认。
+
+## 拓扑影响面 —— 必做动作，不是可选项
+
+`correlate_incident` 的返回里已经带了服务端算好的 **topology_impact 面板**：故障节点（center）+ 沿可传播故障的边（depends_on / deployed_on / routes_to）2 跳内的所有受影响节点（含 hop 距离、关系类型、上下游方向）。所以这一节**不用你自己花调用去发现**——直接照着面板写：
+
+1. 报告必须含"拓扑影响面"一节，**直接从 topology_impact 面板**列出受影响的上下游服务 / 设备（节点名 + 关系类型 + hop）及其业务影响；
+2. 面板缺失（`skipped.topology_impact`）或 affected 为空时，对应写"拓扑无数据，影响面未评估"或"影响面局限于自身，无上下游依赖"，不许静默跳过；
+3. 只有当你要追**超过 2 跳**的级联、或沿上游深挖根因是否在更上层时，才自己调 `expand_topology`（配合 `find_topology_node` 定位起点）——常规影响面面板已覆盖，别浪费预算重复 discover。
 
 ## 预算 —— 深挖，但绝不打转
 
@@ -109,6 +117,9 @@ metadata:
 
 **因果链**
 {源头 → … → 告警症状，每段一行，写清"为什么导致下一段"+ 证据（PromQL/LogQL/trace/进程行）}
+
+**拓扑影响面**
+{按拓扑列出的受影响上游调用方 / 依赖服务（节点名 + 关系类型）及其业务影响；拓扑无数据时写"拓扑无数据，影响面未评估"}
 
 **现象**
 {1-2 句：什么时候开始 / 哪台机 / 什么越线 / 持续多久}

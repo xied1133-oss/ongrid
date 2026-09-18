@@ -14,6 +14,7 @@ import (
 	alertbiz "github.com/ongridio/ongrid/internal/manager/biz/alert"
 	devicebiz "github.com/ongridio/ongrid/internal/manager/biz/device"
 	edgebiz "github.com/ongridio/ongrid/internal/manager/biz/edge"
+	topologybiz "github.com/ongridio/ongrid/internal/manager/biz/topology"
 	devicemodel "github.com/ongridio/ongrid/internal/manager/model/device"
 	"github.com/ongridio/ongrid/internal/pkg/logquery"
 	"github.com/ongridio/ongrid/internal/pkg/tracequery"
@@ -36,6 +37,9 @@ type CorrelateIncidentTool struct {
 	traceQuery TraceQuerier
 	edges      *edgebiz.Usecase
 	devices    *devicebiz.Usecase
+	// topologyGraph feeds the deterministic topology_impact panel (see
+	// topology_impact.go). nil-safe — the panel is skipped with a reason.
+	topologyGraph *topologybiz.Usecase
 	log        *slog.Logger
 }
 
@@ -47,6 +51,7 @@ func NewCorrelateIncidentTool(
 	traceQuery TraceQuerier,
 	edges *edgebiz.Usecase,
 	devices *devicebiz.Usecase,
+	topologyGraph *topologybiz.Usecase,
 	log *slog.Logger,
 ) *CorrelateIncidentTool {
 	if log == nil {
@@ -59,6 +64,7 @@ func NewCorrelateIncidentTool(
 		traceQuery: traceQuery,
 		edges:      edges,
 		devices:    devices,
+		topologyGraph: topologyGraph,
 		log:        log,
 	}
 }
@@ -229,6 +235,15 @@ func (t *CorrelateIncidentTool) singleCorrelate(ctx context.Context, incidentID 
 	if inc.DeviceID != nil && t.edges != nil {
 		snap := t.queryEdgeSnapshot(callCtx, *inc.DeviceID, inc.FirstFiredAt)
 		bundle.Edge = snap
+	}
+
+	// Topology impact — deterministic blast radius (see topology_impact.go).
+	// Rides along with the bundle so the report's 拓扑影响面 section never
+	// depends on the LLM spontaneously calling expand_topology.
+	if panel, reason := topologyImpactPanel(callCtx, t.topologyGraph, t.devices, inc, labels, annotations); panel != nil {
+		bundle.TopologyPanel = panel
+	} else {
+		bundle.Skipped["topology_impact"] = reason
 	}
 
 	if len(bundle.Skipped) == 0 {

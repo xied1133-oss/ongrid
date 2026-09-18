@@ -93,6 +93,10 @@ type correlateIncidentBundle struct {
 	LogPanel    []logEntry        `json:"log_panel,omitempty"`
 	TracePanel  []traceEntry      `json:"trace_panel,omitempty"`
 	Edge        *edgeSnapshot     `json:"edge,omitempty"`
+	// TopologyPanel is the deterministic blast radius of the incident's own
+	// topology node — see topology_impact.go. Present whenever the graph and
+	// the node resolve; otherwise the reason lands in Skipped["topology_impact"].
+	TopologyPanel *topologyImpact `json:"topology_impact,omitempty"`
 	Skipped     map[string]string `json:"skipped,omitempty"`
 	Truncated   map[string]int    `json:"truncated,omitempty"`
 }
@@ -153,6 +157,41 @@ type currentLoad struct {
 	CPUPct *float64 `json:"cpu_pct,omitempty"`
 	MemPct *float64 `json:"mem_pct,omitempty"`
 	Up     *float64 `json:"up,omitempty"`
+}
+
+// topologyImpact is the deterministic blast-radius panel correlate_incident
+// attaches to every incident bundle: the incident's own topology node plus
+// every node reached by following propagating relations (depends_on /
+// deployed_on / routes_to). Computing this server-side is what guarantees the
+// report's 拓扑影响面 section exists — small models reliably skip a spontaneous
+// expand_topology call under the tool budget, so the topology has to ride along
+// with the one tool every investigation calls first.
+type topologyImpact struct {
+	Center   topologyNodeRef    `json:"center"`
+	Affected []topologyAffected `json:"affected,omitempty"`
+	MaxHops  int                `json:"max_hops"`
+	Note     string             `json:"note,omitempty"`
+}
+
+type topologyNodeRef struct {
+	NodeID uint64 `json:"node_id"`
+	Name   string `json:"name"`
+	Type   string `json:"type"`
+}
+
+// topologyAffected is one node in the blast radius. Direction is from the
+// center's perspective: "upstream" = this node depends on / calls the center
+// (so it breaks when the center dies — the usual 影响面); "downstream" = the
+// center depends on this node (a possible root cause beneath the center).
+type topologyAffected struct {
+	NodeID       uint64 `json:"node_id"`
+	Name         string `json:"name"`
+	Type         string `json:"type"`
+	Hops         int    `json:"hops"`
+	RelationType string `json:"relation_type,omitempty"`
+	SemanticsTag string `json:"semantics_tag,omitempty"`
+	Direction    string `json:"direction,omitempty"`
+	ViaNode      string `json:"via_node,omitempty"`
 }
 
 // executeCorrelateIncident assembles the bundle.
@@ -286,6 +325,15 @@ func (r *Registry) executeCorrelateIncident(ctx context.Context, args json.RawMe
 	if inc.DeviceID != nil && r.edges != nil {
 		snap := r.queryEdgeSnapshot(callCtx, *inc.DeviceID, inc.FirstFiredAt)
 		bundle.Edge = snap
+	}
+
+	// Topology impact — deterministic blast radius of the incident's own node
+	// (see topology_impact.go). Rides along with the bundle so the report's
+	// 拓扑影响面 section never depends on the LLM calling expand_topology itself.
+	if panel, reason := topologyImpactPanel(callCtx, r.topologyGraph, r.devices, inc, labels, annotations); panel != nil {
+		bundle.TopologyPanel = panel
+	} else {
+		bundle.Skipped["topology_impact"] = reason
 	}
 
 	if len(bundle.Skipped) == 0 {

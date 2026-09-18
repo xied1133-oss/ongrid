@@ -1,0 +1,9 @@
+# Docker build contexts for deploy/Dockerfile.{ongrid,ongrid-edge,web} never
+# read these paths; excluding them shrinks the context from ~400MB (a dev
+# checkout with fetched models / local builds) to tens of MB.
+.git
+.cache
+dist
+bin
+web/node_modules
+web/dist

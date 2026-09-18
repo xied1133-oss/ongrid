@@ -1,0 +1,21 @@
+apiVersion: 1
+
+# Loki datasource provisioning (ADR-012). Built-in Loki defaults to the
+# `loki` docker service; external Loki URL is overridden via env when
+# ONGRID_LOG_BUILTIN=false.
+datasources:
+  - name: ongrid-loki
+    uid: ongrid-loki
+    type: loki
+    access: proxy
+    # Grafana env interpolation does NOT support shell-style :- defaults
+    # (v0.7.40 fix — produced empty url, which broke "在 Grafana 中查看
+    # 日志" with "unsupported protocol scheme"). The default lives in
+    # the grafana service compose env now; keep this a plain ${VAR}.
+    url: ${ONGRID_LOG_URL}
+    isDefault: false
+    # The manager updates this datasource after runtime Loki settings change.
+    editable: true
+    jsonData:
+      timeout: 60
+      maxLines: 5000
